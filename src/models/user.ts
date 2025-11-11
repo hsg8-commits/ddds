@@ -11,6 +11,7 @@ export default interface User {
   avatar: string;
   biography: string;
   status: "online" | "offline";
+  role?: "user" | "doctor" | "admin";
   isLogin: boolean;
   roomMessageTrack: { roomId: string; scrollPos: number }[];
   createdAt: string;

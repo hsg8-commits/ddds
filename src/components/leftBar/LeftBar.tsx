@@ -164,24 +164,37 @@ const LeftBar = () => {
 
   // النقر على الطبيب - بنفس منطق SearchResultCard
   const handleDoctorClick = useCallback((doctor: Doctor) => {
-    // البحث عن غرفة موجودة
+    // البحث عن غرفة موجودة - نفس منطق SearchResultCard
     const existingRoom = userRooms.find((room) => {
-      if (room.type !== "private") return false;
-      
-      const participantIds = Array.isArray(room.participants) 
-        ? room.participants.map(getUserId).filter(Boolean)
-        : [];
-      
-      return participantIds.includes(userId) && 
-             participantIds.includes(doctor._id) && 
-             participantIds.length === 2;
+      return (
+        room._id === doctor._id || // For channel & groups
+        room.name === userId + "-" + doctor._id || // for private chats
+        room.name === doctor._id + "-" + userId // for private chats
+      );
     });
 
     if (existingRoom) {
       // فتح الغرفة الموجودة
+      roomsSocket?.emit("joining", existingRoom._id);
       setter({ selectedRoom: existingRoom });
     } else {
-      // إنشاء كائن طبيب مشابه لكائن User في البحث
+      // إنشاء كائن User كامل للطبيب - نفس منطق SearchResultCard
+      const myUserData = {
+        _id: userId,
+        name: useUserStore.getState().name || "",
+        lastName: useUserStore.getState().lastName || "",
+        username: useUserStore.getState().username || "",
+        phone: useUserStore.getState().phone || "",
+        avatar: useUserStore.getState().avatar || "",
+        biography: useUserStore.getState().biography || "",
+        password: "",
+        rooms: [],
+        role: "user" as const,
+        status: "online" as const,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      };
+
       const doctorAsUser = {
         _id: doctor._id,
         name: doctor.name,
@@ -190,40 +203,37 @@ const LeftBar = () => {
         phone: doctor.phone,
         avatar: doctor.avatar || "",
         biography: doctor.biography || "",
-        // إضافة الحقول المطلوبة من User model
-        password: "", // فارغ لأنه ليس مهم هنا
+        password: "",
         rooms: [],
-        role: "doctor",
+        role: "doctor" as const,
         status: doctor.status,
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString()
       };
 
       // استخدام نفس المنطق الموجود في SearchResultCard
-      // عادة يتم استخدام setter لتحديد selectedRoom مع بيانات المستخدم
-      const newRoom = {
-        _id: `${userId}_${doctor._id}`,
-        name: `${doctor.name} ${doctor.lastName || ""}`.trim(),
-        type: "private" as const,
-        participants: [userId, doctor._id],
+      const userRoom = {
+        admins: [userId, doctor._id],
+        avatar: "",
+        createdAt: Date.now().toString(),
         creator: userId,
-        admins: [userId],
-        messages: [],
-        medias: [],
+        link: (Math.random() * 9999999).toString(),
         locations: [],
-        avatar: doctor.avatar || "",
+        medias: [],
+        messages: [],
+        name: userId + "-" + doctor._id,
+        participants: [myUserData, doctorAsUser],
+        type: "private" as const,
+        updatedAt: Date.now().toString(),
+        _id: "",
         lastMsgData: null,
-        notSeenCount: 0,
-        link: "",
-        description: "",
-        isBlocked: false,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString()
+        notSeenCount: 0
       };
 
-      setter({ selectedRoom: newRoom });
+      setter({ isRoomDetailsShown: false, selectedRoom: userRoom });
+      roomsSocket?.emit("joining", doctor._id);
     }
-  }, [userId, userRooms, setter]);
+  }, [userId, userRooms, setter, roomsSocket]);
 
   //Sort rooms by filter and last message time
   const sortedRooms = useMemo(() => {

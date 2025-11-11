@@ -129,7 +129,7 @@ const EditUsername = ({ getBack }: { getBack: () => void }) => {
           </p>
         )}
         يمكنك اختيار اسم مستخدم في{" "}
-        <span className="font-bold font-vazirBold">تواصل خاص وسري</span>. إذا فعلت ذلك،
+        <span className="font-bold font-vazirBold">دوائك الطبي والذكي</span>. إذا فعلت ذلك،
         سيتمكن الأشخاص من العثور عليك باستخدام اسم المستخدم هذا والتواصل معك دون
         الحاجة إلى رقم هاتفك.
         <br />

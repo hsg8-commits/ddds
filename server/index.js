@@ -77,9 +77,9 @@ const RoomSchema = new Schema({
   biography: String,
   link: String,
   creator: { type: Schema.Types.ObjectId, ref: 'User' },
-  participants: [{ type: Schema.Types.ObjectId, ref: 'User', required: true }],
-  admins: [{ type: Schema.Types.ObjectId, ref: 'User', required: true }],
-  messages: [{ type: Schema.Types.ObjectId, ref: 'Message', required: true }],
+  participants: [{ type: Schema.Types.ObjectId, ref: 'User' }],
+  admins: [{ type: Schema.Types.ObjectId, ref: 'User' }],
+  messages: [{ type: Schema.Types.ObjectId, ref: 'Message' }],
   medias: [Schema.Types.Mixed],
   locations: [Schema.Types.Mixed],
 }, { timestamps: true });
@@ -482,6 +482,12 @@ io.on('connection', (socket) => {
   // ==========================================
   socket.on('createRoom', async ({ newRoomData, message = null }) => {
     try {
+      console.log('📥 createRoom request:', {
+        name: newRoomData.name,
+        type: newRoomData.type,
+        participantsCount: newRoomData.participants?.length
+      });
+
       let isRoomExist = false;
 
       if (newRoomData.type === 'private') {
@@ -493,9 +499,31 @@ io.on('connection', (socket) => {
       if (!isRoomExist) {
         let msgData = message;
 
-        if (newRoomData.type === 'private') {
-          newRoomData.participants = newRoomData.participants.map((data) => data?._id);
+        // تحويل participants إلى IDs فقط
+        if (newRoomData.type === 'private' && Array.isArray(newRoomData.participants)) {
+          newRoomData.participants = newRoomData.participants
+            .map((data) => {
+              if (typeof data === 'string') return data;
+              return data?._id || null;
+            })
+            .filter(Boolean); // إزالة القيم الفارغة
         }
+
+        // تحويل admins إلى IDs فقط إذا لم تكن بالفعل
+        if (Array.isArray(newRoomData.admins)) {
+          newRoomData.admins = newRoomData.admins
+            .map((data) => {
+              if (typeof data === 'string') return data;
+              return data?._id || null;
+            })
+            .filter(Boolean);
+        }
+
+        console.log('✅ Creating room with data:', {
+          name: newRoomData.name,
+          participants: newRoomData.participants,
+          admins: newRoomData.admins
+        });
 
         const newRoom = await Room.create(newRoomData);
 
@@ -520,10 +548,14 @@ io.on('connection', (socket) => {
           if (targetSocket) targetSocket.join(newRoom._id.toString());
         });
 
+        console.log('✅ Room created successfully:', newRoom._id);
         io.to(newRoom._id.toString()).emit('createRoom', newRoom);
+      } else {
+        console.log('ℹ️ Room already exists:', isRoomExist._id);
       }
     } catch (createRoomError) {
       console.error('❌ Error in createRoom:', createRoomError);
+      console.error('❌ Stack:', createRoomError.stack);
     }
   });
 

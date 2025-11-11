@@ -164,6 +164,8 @@ const LeftBar = () => {
 
   // النقر على الطبيب - بنفس منطق SearchResultCard
   const handleDoctorClick = useCallback((doctor: Doctor) => {
+    console.log('👨‍⚕️ Clicked on doctor:', doctor.name, doctor._id);
+    
     // البحث عن غرفة موجودة - نفس منطق SearchResultCard
     const existingRoom = userRooms.find((room) => {
       return (
@@ -173,11 +175,15 @@ const LeftBar = () => {
       );
     });
 
+    console.log('🔍 Existing room found:', existingRoom ? existingRoom._id : 'none');
+
     if (existingRoom) {
       // فتح الغرفة الموجودة
+      console.log('✅ Opening existing room:', existingRoom._id);
       roomsSocket?.emit("joining", existingRoom._id);
       setter({ selectedRoom: existingRoom });
     } else {
+      console.log('➕ Creating new room with doctor');
       // إنشاء كائن User كامل للطبيب مع إضافة الخصائص المفقودة
       const myUserData = {
         _id: userId,

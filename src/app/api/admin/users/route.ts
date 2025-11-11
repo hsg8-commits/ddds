@@ -1,29 +1,33 @@
 import { NextRequest, NextResponse } from "next/server";
-import { connectDB } from "@/utils/db";
-import User from "@/schemas/userSchema";
-import Room from "@/schemas/roomSchema";
-import { verifyToken } from "@/utils/auth";
+import connectToDB from "@/db";
+import UserSchema from "@/schemas/userSchema";
+import RoomSchema from "@/schemas/roomSchema";
+import { tokenDecoder } from "@/utils";
 
 // GET - جلب جميع المستخدمين (للأدمن فقط)
 export async function GET(request: NextRequest) {
   try {
+    await connectToDB();
+
     // التحقق من صلاحية الأدمن
     const token = request.cookies.get("token")?.value;
     if (!token) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const decoded = await verifyToken(token);
-    const currentUser = await User.findById(decoded.userId);
+    const decoded = tokenDecoder(token) as { phone: string };
+    if (!decoded?.phone) {
+      return NextResponse.json({ error: "Invalid token" }, { status: 401 });
+    }
+
+    const currentUser = await UserSchema.findOne({ phone: decoded.phone });
 
     if (!currentUser || currentUser.role !== "admin") {
       return NextResponse.json({ error: "Forbidden - Admin only" }, { status: 403 });
     }
 
-    await connectDB();
-
     // جلب جميع المستخدمين مع ترتيب حسب التاريخ
-    const users = await User.find({})
+    const users = await UserSchema.find({})
       .select("name lastName username phone role isPaid status avatar createdAt")
       .sort({ createdAt: -1 })
       .lean();
@@ -44,20 +48,24 @@ export async function GET(request: NextRequest) {
 // PUT - تحديث مستخدم (تغيير الدور أو حالة الدفع)
 export async function PUT(request: NextRequest) {
   try {
+    await connectToDB();
+
     // التحقق من صلاحية الأدمن
     const token = request.cookies.get("token")?.value;
     if (!token) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const decoded = await verifyToken(token);
-    const currentUser = await User.findById(decoded.userId);
+    const decoded = tokenDecoder(token) as { phone: string };
+    if (!decoded?.phone) {
+      return NextResponse.json({ error: "Invalid token" }, { status: 401 });
+    }
+
+    const currentUser = await UserSchema.findOne({ phone: decoded.phone });
 
     if (!currentUser || currentUser.role !== "admin") {
       return NextResponse.json({ error: "Forbidden - Admin only" }, { status: 403 });
     }
-
-    await connectDB();
 
     const { userId, role, isPaid } = await request.json();
 
@@ -69,7 +77,7 @@ export async function PUT(request: NextRequest) {
     if (role !== undefined) updateFields.role = role;
     if (isPaid !== undefined) updateFields.isPaid = isPaid;
 
-    const updatedUser = await User.findByIdAndUpdate(
+    const updatedUser = await UserSchema.findByIdAndUpdate(
       userId,
       { $set: updateFields },
       { new: true }
@@ -98,20 +106,24 @@ export async function PUT(request: NextRequest) {
 // DELETE - حذف مستخدم
 export async function DELETE(request: NextRequest) {
   try {
+    await connectToDB();
+
     // التحقق من صلاحية الأدمن
     const token = request.cookies.get("token")?.value;
     if (!token) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const decoded = await verifyToken(token);
-    const currentUser = await User.findById(decoded.userId);
+    const decoded = tokenDecoder(token) as { phone: string };
+    if (!decoded?.phone) {
+      return NextResponse.json({ error: "Invalid token" }, { status: 401 });
+    }
+
+    const currentUser = await UserSchema.findOne({ phone: decoded.phone });
 
     if (!currentUser || currentUser.role !== "admin") {
       return NextResponse.json({ error: "Forbidden - Admin only" }, { status: 403 });
     }
-
-    await connectDB();
 
     const { userId } = await request.json();
 
@@ -120,7 +132,7 @@ export async function DELETE(request: NextRequest) {
     }
 
     // التحقق من أن المستخدم المراد حذفه ليس أدمن
-    const userToDelete = await User.findById(userId);
+    const userToDelete = await UserSchema.findById(userId);
     if (!userToDelete) {
       return NextResponse.json({ error: "User not found" }, { status: 404 });
     }
@@ -130,11 +142,11 @@ export async function DELETE(request: NextRequest) {
     }
 
     // حذف المستخدم
-    await User.findByIdAndDelete(userId);
+    await UserSchema.findByIdAndDelete(userId);
 
     // حذف أو تحديث الغرف المرتبطة (اختياري)
     // يمكن إزالة المستخدم من participants في جميع الغرف
-    await Room.updateMany(
+    await RoomSchema.updateMany(
       { participants: userId },
       { $pull: { participants: userId } }
     );

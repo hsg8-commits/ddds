@@ -154,7 +154,7 @@ const LeftBar = () => {
     }
   };
 
-  // دالة مساعدة للحصول على معرف المستخدم
+  // دالة مساعدة للحصول على معرف المستخدم من participant
   const getUserId = (participant: any): string => {
     if (typeof participant === 'string') {
       return participant;
@@ -162,61 +162,34 @@ const LeftBar = () => {
     return participant?._id || participant?.id || '';
   };
 
+  // النقر على الطبيب - فقط فتح المحادثة الموجودة
   const handleDoctorClick = useCallback((doctor: Doctor) => {
-    try {
-      console.log("🔍 البحث عن محادثة مع الطبيب:", doctor.name);
-      console.log("👤 معرف المستخدم الحالي:", userId);
-      console.log("👨‍⚕️ معرف الطبيب:", doctor._id);
+    console.log("🔍 البحث عن محادثة موجودة مع الطبيب:", doctor.name, doctor._id);
+    
+    // البحث في جميع الغرف عن محادثة مع هذا الطبيب
+    const existingRoom = userRooms.find((room) => {
+      if (room.type !== "private") return false;
       
-      // البحث عن أي غرفة خاصة تحتوي على الطبيب والمستخدم الحالي
-      const existingRoom = userRooms.find((room) => {
-        // يجب أن تكون الغرفة خاصة
-        if (room.type !== "private") return false;
-        
-        // الحصول على معرفات المشاركين
-        const participantIds = Array.isArray(room.participants) 
-          ? room.participants.map(getUserId).filter(Boolean)
-          : [];
-        
-        // التحقق من وجود المستخدم الحالي والطبيب
-        const hasCurrentUser = participantIds.includes(userId);
-        const hasDoctor = participantIds.includes(doctor._id);
-        const isExactlyTwo = participantIds.length === 2;
-        
-        return hasCurrentUser && hasDoctor && isExactlyTwo;
-      });
+      const participantIds = Array.isArray(room.participants) 
+        ? room.participants.map(getUserId).filter(Boolean)
+        : [];
+      
+      const hasCurrentUser = participantIds.includes(userId);
+      const hasDoctor = participantIds.includes(doctor._id);
+      
+      return hasCurrentUser && hasDoctor && participantIds.length === 2;
+    });
 
-      if (existingRoom) {
-        // وُجدت محادثة موجودة - فتحها مباشرة
-        console.log("✅ تم العثور على محادثة موجودة:", existingRoom._id);
-        setter({ selectedRoom: existingRoom });
-      } else {
-        // لا توجد محادثة - إنشاء غرفة جديدة مباشرة عبر Socket
-        console.log("❌ لا توجد محادثة موجودة");
-        console.log("🆕 إنشاء محادثة جديدة...");
-        
-        if (roomsSocket) {
-          const newRoomData = {
-            name: `${doctor.name} ${doctor.lastName || ""}`.trim(),
-            type: "private",
-            participants: [userId, doctor._id],
-            avatar: doctor.avatar || "",
-            description: `محادثة مع الطبيب ${doctor.name}`
-          };
-          
-          console.log("📤 إرسال طلب إنشاء غرفة جديدة:", newRoomData);
-          roomsSocket.emit("createRoom", { newRoomData });
-        } else {
-          console.error("❌ Socket غير متصل");
-          alert("غير متصل بالخادم. حاول مرة أخرى.");
-        }
-      }
-      
-    } catch (error) {
-      console.error("❌ خطأ في handleDoctorClick:", error);
-      alert("حدث خطأ. حاول مرة أخرى.");
+    if (existingRoom) {
+      console.log("✅ تم العثور على محادثة موجودة:", existingRoom._id);
+      // فتح المحادثة الموجودة
+      setter({ selectedRoom: existingRoom });
+    } else {
+      console.log("⚠️ لا توجد محادثة موجودة مع هذا الطبيب");
+      // عرض رسالة للمستخدم
+      alert(`لا توجد محادثة مع الطبيب ${doctor.name}. ابدأ محادثة جديدة من قائمة المحادثات.`);
     }
-  }, [userId, userRooms, setter, roomsSocket]);
+  }, [userId, userRooms, setter]);
 
   //Sort rooms by filter and last message time
   const sortedRooms = useMemo(() => {
@@ -319,6 +292,9 @@ const LeftBar = () => {
                       <h2 className="text-white font-bold text-center">
                         👨‍⚕️ الأطباء المتاحون ({doctors.length})
                       </h2>
+                      <p className="text-white/70 text-xs text-center mt-1">
+                        اضغط على الطبيب لفتح المحادثة معه
+                      </p>
                     </div>
                     {doctors.map((doctor) => (
                       <DoctorCard

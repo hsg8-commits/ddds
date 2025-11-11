@@ -154,7 +154,7 @@ const LeftBar = () => {
     }
   };
 
-  // دالة مساعدة للحصول على معرف المستخدم من participant
+  // دالة للحصول على معرف المستخدم من participant
   const getUserId = (participant: any): string => {
     if (typeof participant === 'string') {
       return participant;
@@ -162,11 +162,9 @@ const LeftBar = () => {
     return participant?._id || participant?.id || '';
   };
 
-  // النقر على الطبيب - فقط فتح المحادثة الموجودة
+  // النقر على الطبيب - بنفس منطق SearchResultCard
   const handleDoctorClick = useCallback((doctor: Doctor) => {
-    console.log("🔍 البحث عن محادثة موجودة مع الطبيب:", doctor.name, doctor._id);
-    
-    // البحث في جميع الغرف عن محادثة مع هذا الطبيب
+    // البحث عن غرفة موجودة
     const existingRoom = userRooms.find((room) => {
       if (room.type !== "private") return false;
       
@@ -174,20 +172,56 @@ const LeftBar = () => {
         ? room.participants.map(getUserId).filter(Boolean)
         : [];
       
-      const hasCurrentUser = participantIds.includes(userId);
-      const hasDoctor = participantIds.includes(doctor._id);
-      
-      return hasCurrentUser && hasDoctor && participantIds.length === 2;
+      return participantIds.includes(userId) && 
+             participantIds.includes(doctor._id) && 
+             participantIds.length === 2;
     });
 
     if (existingRoom) {
-      console.log("✅ تم العثور على محادثة موجودة:", existingRoom._id);
-      // فتح المحادثة الموجودة
+      // فتح الغرفة الموجودة
       setter({ selectedRoom: existingRoom });
     } else {
-      console.log("⚠️ لا توجد محادثة موجودة مع هذا الطبيب");
-      // عرض رسالة للمستخدم
-      alert(`لا توجد محادثة مع الطبيب ${doctor.name}. ابدأ محادثة جديدة من قائمة المحادثات.`);
+      // إنشاء كائن طبيب مشابه لكائن User في البحث
+      const doctorAsUser = {
+        _id: doctor._id,
+        name: doctor.name,
+        lastName: doctor.lastName,
+        username: doctor.username,
+        phone: doctor.phone,
+        avatar: doctor.avatar || "",
+        biography: doctor.biography || "",
+        // إضافة الحقول المطلوبة من User model
+        password: "", // فارغ لأنه ليس مهم هنا
+        rooms: [],
+        role: "doctor",
+        status: doctor.status,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      };
+
+      // استخدام نفس المنطق الموجود في SearchResultCard
+      // عادة يتم استخدام setter لتحديد selectedRoom مع بيانات المستخدم
+      const newRoom = {
+        _id: `${userId}_${doctor._id}`,
+        name: `${doctor.name} ${doctor.lastName || ""}`.trim(),
+        type: "private" as const,
+        participants: [userId, doctor._id],
+        creator: userId,
+        admins: [userId],
+        messages: [],
+        medias: [],
+        locations: [],
+        avatar: doctor.avatar || "",
+        lastMsgData: null,
+        notSeenCount: 0,
+        link: "",
+        description: "",
+        isBlocked: false,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      };
+
+      setter({ selectedRoom: newRoom });
     }
   }, [userId, userRooms, setter]);
 
@@ -292,9 +326,6 @@ const LeftBar = () => {
                       <h2 className="text-white font-bold text-center">
                         👨‍⚕️ الأطباء المتاحون ({doctors.length})
                       </h2>
-                      <p className="text-white/70 text-xs text-center mt-1">
-                        اضغط على الطبيب لفتح المحادثة معه
-                      </p>
                     </div>
                     {doctors.map((doctor) => (
                       <DoctorCard

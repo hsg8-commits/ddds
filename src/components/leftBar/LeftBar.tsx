@@ -154,40 +154,89 @@ const LeftBar = () => {
     }
   };
 
+  // دالة للحصول على معرف المستخدم من الكائن
+  const getUserId = (participant: any): string => {
+    if (typeof participant === 'string') {
+      return participant;
+    }
+    return participant?._id || participant?.id || '';
+  };
+
   const handleDoctorClick = async (doctor: Doctor) => {
     try {
-      console.log("Selected doctor:", doctor);
-      console.log("Current user ID:", userId);
+      console.log("🔍 Selecting doctor:", doctor.name, doctor._id);
+      console.log("👤 Current user:", userId);
+      console.log("📋 All rooms:", userRooms);
       
-      // البحث عن الغرفة الموجودة بطريقة أكثر دقة
+      // البحث الدقيق عن الغرفة الموجودة
       const existingRoom = userRooms.find((room) => {
-        // التحقق من أن الغرفة خاصة وتحتوي على المستخدم الحالي والطبيب
+        // يجب أن تكون الغرفة خاصة
         if (room.type !== "private") return false;
         
-        // التحقق من المشاركين
-        const roomParticipants = Array.isArray(room.participants) ? room.participants : [];
-        const hasCurrentUser = roomParticipants.some((p: any) => 
-          (typeof p === 'string' ? p : p._id || p.id) === userId
-        );
-        const hasDoctor = roomParticipants.some((p: any) => 
-          (typeof p === 'string' ? p : p._id || p.id) === doctor._id
-        );
+        // الحصول على قائمة المعرفات
+        const participantIds = Array.isArray(room.participants) 
+          ? room.participants.map(getUserId).filter(Boolean)
+          : [];
         
-        return hasCurrentUser && hasDoctor && roomParticipants.length === 2;
+        console.log("🔍 Checking room:", room._id, "participants:", participantIds);
+        
+        // التحقق من وجود كلا المستخدمين فقط
+        const hasCurrentUser = participantIds.includes(userId);
+        const hasDoctor = participantIds.includes(doctor._id);
+        const isExactlyTwo = participantIds.length === 2;
+        
+        return hasCurrentUser && hasDoctor && isExactlyTwo;
       });
 
       if (existingRoom) {
-        console.log("Found existing room:", existingRoom);
+        console.log("✅ Found existing room:", existingRoom._id);
         setter({ selectedRoom: existingRoom });
-      } else {
-        console.log("Creating new room for doctor:", doctor.name);
+        return;
+      }
+
+      console.log("❌ No existing room found, creating new one...");
+      
+      // إنشاء غرفة جديدة عبر API بدلاً من Socket مباشرة
+      try {
+        const response = await fetch("/api/rooms/create-doctor-room", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            doctorId: doctor._id,
+            userId: userId,
+          }),
+        });
+
+        if (!response.ok) {
+          throw new Error("Failed to create room");
+        }
+
+        const data = await response.json();
         
-        // إنشاء معرف غرفة أقصر لتجنب قيود الطول
-        const shortRoomId = `dr_${doctor._id.slice(-8)}_${userId.slice(-8)}`;
+        if (data.success && data.room) {
+          console.log("✅ Room created successfully:", data.room);
+          
+          // تحديث قائمة الغرف
+          const updatedRooms = [...userRooms, data.room];
+          userDataUpdater({ rooms: updatedRooms });
+          
+          // اختيار الغرفة الجديدة
+          setter({ selectedRoom: data.room });
+        } else {
+          console.error("❌ Failed to create room:", data.message);
+          alert("فشل في إنشاء المحادثة. حاول مرة أخرى.");
+        }
+      } catch (apiError) {
+        console.error("❌ API Error:", apiError);
+        
+        // في حالة فشل API، استخدم Socket كخيار احتياطي
+        console.log("⚠️ Falling back to Socket method...");
+        
         const currentDate = new Date().toISOString();
-        
         const newRoom = {
-          _id: shortRoomId,
+          _id: `pvt_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
           name: `Dr. ${doctor.name} ${doctor.lastName || ''}`.trim(),
           type: "private" as const,
           participants: [userId, doctor._id],
@@ -200,28 +249,25 @@ const LeftBar = () => {
           lastMsgData: null,
           notSeenCount: 0,
           link: "",
-          description: `محادثة مع الطبيب ${doctor.name} ${doctor.lastName || ''}`,
+          description: `محادثة مع الطبيب ${doctor.name}`,
           isBlocked: false,
           createdAt: currentDate,
           updatedAt: currentDate
         };
 
-        console.log("New room data:", newRoom);
-        
-        // إرسال البيانات للخادم
         roomsSocket?.emit("createRoom", { newRoomData: newRoom });
         
-        // تحديث الحالة المحلية
-        setter({ selectedRoom: newRoom });
-        
-        // إضافة الغرفة إلى قائمة الغرف المحلية مؤقتاً
-        if (userDataUpdater) {
+        // الانتظار قليلاً قبل تحديد الغرفة
+        setTimeout(() => {
           const updatedRooms = [...userRooms, newRoom];
           userDataUpdater({ rooms: updatedRooms });
-        }
+          setter({ selectedRoom: newRoom });
+        }, 500);
       }
+      
     } catch (error) {
-      console.error("Error in handleDoctorClick:", error);
+      console.error("❌ Error in handleDoctorClick:", error);
+      alert("حدث خطأ. حاول مرة أخرى.");
     }
   };
 

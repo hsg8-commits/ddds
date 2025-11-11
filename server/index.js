@@ -5,13 +5,15 @@ import { Server } from 'socket.io';
 import { createServer } from 'http';
 import mongoose from 'mongoose';
 import dotenv from 'dotenv';
+import { handleAIMessage, isAIRoom } from './aiHandler.js';
+import bcrypt from 'bcrypt';
 
 dotenv.config();
 
 // MongoDB Schemas
 const { Schema, model } = mongoose;
 
-// User Schema مع جميع الحقول المطلوبة
+// User Schema مع جميع الحقول المطلوبة + حقول المنصة الطبية
 const UserSchema = new Schema({
   name: { type: String, required: true, minLength: 3, maxLength: 20 },
   lastName: { type: String, default: "", maxLength: 20 },
@@ -32,6 +34,11 @@ const UserSchema = new Schema({
     type: [{ roomId: String, scrollPos: Number }],
     default: [],
   },
+  // حقول المنصة الطبية
+  role: { type: String, enum: ["user", "doctor", "admin"], default: "user" },
+  isPaid: { type: Boolean, default: false },
+  assignedDoctor: { type: Schema.Types.ObjectId, ref: "Doctor", default: null },
+  medicalHistory: [{ date: Date, diagnosis: String, prescription: String }],
 }, { timestamps: true });
 
 // Message Schema مع دعم الملفات
@@ -150,12 +157,47 @@ const connectDB = async () => {
         socketTimeoutMS: 45000,
       });
       console.log('✅ Connected to MongoDB successfully');
+      
+      // إنشاء حساب AI عند بدء السيرفر
+      await createAIUserAccount();
     }
   } catch (error) {
     console.error('❌ MongoDB connection error:', error);
     process.exit(1);
   }
 };
+
+// دالة إنشاء حساب الذكاء الصناعي الطبي
+async function createAIUserAccount() {
+  try {
+    const aiUsername = "medical_ai";
+    let aiUser = await User.findOne({ username: aiUsername });
+    
+    if (!aiUser) {
+      const hashedPassword = await bcrypt.hash("AI_MEDICAL_2025_SECURE", 10);
+      
+      aiUser = await User.create({
+        name: "المساعد الطبي",
+        lastName: "الذكي",
+        username: aiUsername,
+      password: hashedPassword,
+        phone: "+967777777766",
+        avatar: "ai-doctor-avatar.png",
+        biography: "أنا مساعد طبي ذكي هنا لمساعدتك في الاستفسارات الطبية",
+        role: "user",
+        isPaid: true,
+        status: "online",
+        type: "private",
+      });
+      
+      console.log('✅ تم إنشاء حساب الذكاء الصناعي الطبي:', aiUser._id);
+    } else {
+      console.log('✅ حساب الذكاء الصناعي موجود بالفعل:', aiUser._id);
+    }
+  } catch (error) {
+    console.error('❌ خطأ في إنشاء حساب AI:', error);
+  }
+}
 
 // Initialize HTTP Server
 const PORT = process.env.PORT || 3001;
@@ -408,6 +450,23 @@ io.on('connection', (socket) => {
           { _id: roomID },
           { $push: { messages: newMsg._id } }
         );
+
+        // معالجة AI التلقائية
+        const isRoomWithAI = await isAIRoom(Room, User, roomID);
+        if (isRoomWithAI && message) {
+          // انتظار ثانية واحدة ثم الرد
+          setTimeout(async () => {
+            await handleAIMessage({
+              Message,
+              Room,
+              User,
+              io,
+              roomID,
+              userMessage: message,
+              senderID: sender
+            });
+          }, 1000);
+        }
 
         if (callback) callback({ success: true, _id: newMsg._id });
       }

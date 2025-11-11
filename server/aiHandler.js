@@ -10,7 +10,7 @@ const client = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
-const AI_USERNAME = "medical_ai_assistant";
+const AI_USERNAME = "medical_ai";
 
 // System message للذكاء الصناعي الطبي
 const SYSTEM_MESSAGE = {

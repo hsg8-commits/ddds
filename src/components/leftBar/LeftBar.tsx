@@ -194,7 +194,7 @@ const LeftBar = () => {
                     onClick={handleOpenLeftBarMenu}
                     className="cursor-pointer"
                   />
-                  <h1 className="font-vazirBold mt-0.5">{status === "Telegram" ? "تواصل خاص وسري" : status}</h1>
+                  <h1 className="font-vazirBold mt-0.5">{status === "Telegram" ? "دوائك الطبي والذكي" : status}</h1>
                 </div>
                 <BiSearch
                   size={22}

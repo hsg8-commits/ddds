@@ -22,17 +22,31 @@ import RoomFolders from "./RoomFolders";
 import useConnection from "@/hook/useConnection";
 import Message from "@/models/message";
 import NotificationPermission from "@/utils/NotificationPermission";
+import DoctorCard from "./DoctorCard";
 
 const CreateRoomBtn = lazy(() => import("@/components/leftBar/CreateRoomBtn"));
 const LeftBarMenu = lazy(() => import("@/components/leftBar/menu/LeftBarMenu"));
 const SearchPage = lazy(() => import("@/components/leftBar/SearchPage"));
 const CreateRoom = lazy(() => import("@/components/leftBar/CreateRoom"));
 
+interface Doctor {
+  _id: string;
+  name: string;
+  lastName: string;
+  username: string;
+  phone: string;
+  avatar?: string;
+  biography?: string;
+  status: "online" | "offline";
+}
+
 const LeftBar = () => {
   const [filterBy, setFilterBy] = useState("all");
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [isLeftBarMenuOpen, setIsLeftBarMenuOpen] = useState(false);
   const [leftBarActiveRoute, setLeftBarActiveRoute] = useState("/");
+  const [doctors, setDoctors] = useState<Doctor[]>([]);
+  const [loadingDoctors, setLoadingDoctors] = useState(false);
   const ringAudioRef = useRef<HTMLAudioElement>(null);
 
   const userId = useUserStore((state) => state._id);
@@ -117,6 +131,69 @@ const LeftBar = () => {
     userDataUpdater,
     updater,
   });
+
+  // جلب الأطباء عندما يتم اختيار تبويب "الأطباء"
+  useEffect(() => {
+    if (filterBy === "bot") {
+      fetchDoctors();
+    }
+  }, [filterBy]);
+
+  const fetchDoctors = async () => {
+    try {
+      setLoadingDoctors(true);
+      const response = await fetch("/api/doctors");
+      const data = await response.json();
+      
+      if (data.success) {
+        setDoctors(data.doctors);
+      }
+    } catch (error) {
+      console.error("Error fetching doctors:", error);
+    } finally {
+      setLoadingDoctors(false);
+    }
+  };
+
+  const handleDoctorClick = async (doctor: Doctor) => {
+    // إنشاء أو فتح محادثة مع الطبيب
+    const roomName = [userId, doctor._id].sort().join("-");
+    
+    // البحث عن الغرفة الموجودة
+    const existingRoom = userRooms.find((room) => 
+      room.type === "private" && 
+      room.participants?.some((p: any) => p._id === doctor._id || p === doctor._id)
+    );
+
+    if (existingRoom) {
+      setter({ selectedRoom: existingRoom });
+    } else {
+      // إنشاء غرفة جديدة
+      const newRoom = {
+        _id: roomName,
+        name: roomName,
+        type: "private",
+        participants: [
+          { _id: userId, name: "", username: "", avatar: "" },
+          { 
+            _id: doctor._id, 
+            name: doctor.name,
+            lastName: doctor.lastName,
+            username: doctor.username, 
+            avatar: doctor.avatar || "" 
+          }
+        ],
+        creator: userId,
+        admins: [userId],
+        messages: [],
+        medias: [],
+        locations: [],
+      };
+
+      roomsSocket?.emit("createRoom", { newRoomData: newRoom });
+      setter({ selectedRoom: newRoom });
+    }
+  };
 
   //Sort rooms by filter and last message time
   const sortedRooms = useMemo(() => {
@@ -209,18 +286,51 @@ const LeftBar = () => {
               className="flex flex-col overflow-y-auto overflow-x-hidden scroll-w-none w-full"
               style={{ zIndex: 0 }}
             >
-              {isPageLoaded ? (
-                sortedRooms.length ? (
-                  sortedRooms.map((data) => (
-                    <ChatCard {...data} key={data?._id} />
-                  ))
+              {filterBy === "bot" ? (
+                // عرض الأطباء
+                loadingDoctors ? (
+                  <RoomSkeleton />
+                ) : doctors.length > 0 ? (
+                  <div className="flex flex-col">
+                    <div className="px-4 py-3 bg-blue-600/20 border-b border-blue-600/30">
+                      <h2 className="text-white font-bold text-center">
+                        👨‍⚕️ الأطباء المتاحون ({doctors.length})
+                      </h2>
+                    </div>
+                    {doctors.map((doctor) => (
+                      <DoctorCard
+                        key={doctor._id}
+                        doctor={doctor}
+                        onClick={() => handleDoctorClick(doctor)}
+                      />
+                    ))}
+                  </div>
                 ) : (
                   <div className="text-xl text-white font-bold w-full text-center font-vazirBold pt-20">
-                    لا توجد محادثات
+                    <div className="flex flex-col items-center gap-4">
+                      <span className="text-6xl">👨‍⚕️</span>
+                      <p>لا يوجد أطباء متاحون حالياً</p>
+                      <p className="text-sm text-gray-400">
+                        سيتم إضافة الأطباء قريباً
+                      </p>
+                    </div>
                   </div>
                 )
               ) : (
-                <RoomSkeleton />
+                // عرض المحادثات العادية
+                isPageLoaded ? (
+                  sortedRooms.length ? (
+                    sortedRooms.map((data) => (
+                      <ChatCard {...data} key={data?._id} />
+                    ))
+                  ) : (
+                    <div className="text-xl text-white font-bold w-full text-center font-vazirBold pt-20">
+                      لا توجد محادثات
+                    </div>
+                  )
+                ) : (
+                  <RoomSkeleton />
+                )
               )}
             </div>
           </div>

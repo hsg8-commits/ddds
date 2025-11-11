@@ -14,7 +14,6 @@ import React, {
 } from "react";
 import { BiSearch } from "react-icons/bi";
 import { RxHamburgerMenu } from "react-icons/rx";
-// 🔥 تم إزالة: import Image from "next/image";
 
 import ChatCard from "./ChatCard";
 import RoomSkeleton from "../modules/ui/RoomSkeleton";
@@ -168,7 +167,7 @@ const LeftBar = () => {
     if (existingRoom) {
       setter({ selectedRoom: existingRoom });
     } else {
-      // إنشاء غرفة جديدة
+      // إنشاء غرفة جديدة مع جميع الخصائص المطلوبة
       const newRoom = {
         _id: roomName,
         name: roomName,
@@ -188,6 +187,13 @@ const LeftBar = () => {
         messages: [],
         medias: [],
         locations: [],
+        // إضافة الخصائص المفقودة مع قيم افتراضية
+        avatar: doctor.avatar || "",
+        lastMsgData: null,
+        notSeenCount: 0,
+        link: "",
+        description: "",
+        isBlocked: false
       };
 
       roomsSocket?.emit("createRoom", { newRoomData: newRoom });

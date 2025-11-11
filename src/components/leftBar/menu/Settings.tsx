@@ -661,7 +661,7 @@ const Settings = ({ getBack, updateRoute }: Props) => {
           </div>
 
           <div className="w-full py-5 px-4 text-center bg-black/70">
-            تواصل خاص وسري - تطبيق مراسلة آمن ومشفر
+            منصه دوائك الطبي والذكي تواصل معا اطبا- تطبيق مراسلة آمن ومشفر
           </div>
         </div>
       </LeftBarContainer>

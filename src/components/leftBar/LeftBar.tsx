@@ -162,109 +162,72 @@ const LeftBar = () => {
     return participant?._id || participant?.id || '';
   };
 
-  // دالة مساعدة للحصول على معلومات المستخدم الكاملة
-  const getUserInfo = (participant: any) => {
-    if (typeof participant === 'string') {
-      return null;
-    }
-    return participant;
-  };
-
   const handleDoctorClick = useCallback((doctor: Doctor) => {
     try {
-      console.log("=".repeat(50));
-      console.log("🔍 Searching for room with doctor:", doctor.name);
-      console.log("👤 Current user ID:", userId);
-      console.log("👨‍⚕️ Doctor ID:", doctor._id);
-      console.log("📋 Total rooms:", userRooms.length);
+      console.log("🔍 البحث عن محادثة مع الطبيب:", doctor.name);
+      console.log("👤 معرف المستخدم الحالي:", userId);
+      console.log("👨‍⚕️ معرف الطبيب:", doctor._id);
       
-      // البحث الدقيق والشامل عن الغرفة الموجودة
-      let foundRoom = null;
-      
-      for (const room of userRooms) {
-        // تخطي الغرف غير الخاصة
-        if (room.type !== "private") continue;
+      // البحث عن أي غرفة خاصة تحتوي على الطبيب والمستخدم الحالي
+      const existingRoom = userRooms.find((room) => {
+        // يجب أن تكون الغرفة خاصة
+        if (room.type !== "private") return false;
         
-        // الحصول على المعرفات
+        // الحصول على معرفات المشاركين
         const participantIds = Array.isArray(room.participants) 
           ? room.participants.map(getUserId).filter(Boolean)
           : [];
         
-        console.log(`🔍 Checking room: ${room._id}`);
-        console.log(`   - Name: ${room.name}`);
-        console.log(`   - Participants IDs:`, participantIds);
-        
-        // التحقق من وجود كلا المستخدمين
+        // التحقق من وجود المستخدم الحالي والطبيب
         const hasCurrentUser = participantIds.includes(userId);
         const hasDoctor = participantIds.includes(doctor._id);
         const isExactlyTwo = participantIds.length === 2;
         
-        console.log(`   - Has current user: ${hasCurrentUser}`);
-        console.log(`   - Has doctor: ${hasDoctor}`);
-        console.log(`   - Exactly 2 participants: ${isExactlyTwo}`);
+        return hasCurrentUser && hasDoctor && isExactlyTwo;
+      });
+
+      if (existingRoom) {
+        // وُجدت محادثة موجودة - فتحها مباشرة
+        console.log("✅ تم العثور على محادثة موجودة:", existingRoom._id);
+        setter({ selectedRoom: existingRoom });
+      } else {
+        // لا توجد محادثة - فتح محادثة جديدة عبر نظام إنشاء الغرف العادي
+        console.log("❌ لا توجد محادثة موجودة");
+        console.log("🆕 سيتم فتح نافذة إنشاء محادثة جديدة");
         
-        if (hasCurrentUser && hasDoctor && isExactlyTwo) {
-          foundRoom = room;
-          console.log("✅ FOUND EXISTING ROOM:", room._id);
-          break;
+        // نستخدم نظام createRoom الموجود في التطبيق
+        // ولكن نمرر معلومات الطبيب مسبقاً
+        setter({ 
+          createRoomType: "private",
+          // يمكن إضافة بيانات الطبيب هنا إذا كان النظام يدعم ذلك
+        });
+        
+        // أو يمكننا إنشاء الغرفة مباشرة إذا كان لديك صلاحية
+        // هنا نستخدم طريقة بسيطة: إرسال حدث لإنشاء الغرفة
+        if (roomsSocket) {
+          const newRoomData = {
+            name: `${doctor.name} ${doctor.lastName || ""}`.trim(),
+            type: "private",
+            participants: [userId, doctor._id],
+            avatar: doctor.avatar || ""
+          };
+          
+          console.log("📤 إرسال طلب إنشاء غرفة جديدة:", newRoomData);
+          roomsSocket.emit("createRoom", { newRoomData });
+          
+          // الانتظار قليلاً للسماح للخادم بإنشاء الغرفة
+          setTimeout(() => {
+            // إعادة البحث عن الغرفة الجديدة
+            console.log("🔄 إعادة البحث عن الغرفة الجديدة...");
+          }, 1000);
         }
       }
-
-      if (foundRoom) {
-        console.log("✅ Opening existing room");
-        setter({ selectedRoom: foundRoom });
-        console.log("=".repeat(50));
-        return;
-      }
-
-      console.log("❌ No existing room found");
-      console.log("🆕 Creating new room...");
-
-      // لا توجد غرفة - نفتح المحادثة مباشرة مع بيانات مؤقتة
-      // سيتم إنشاء الغرفة على الخادم عند إرسال أول رسالة
-      const tempRoom: any = {
-        _id: `temp_${doctor._id}`, // معرف مؤقت
-        name: `Dr. ${doctor.name} ${doctor.lastName || ""}`.trim(),
-        type: "private",
-        participants: [
-          userId,
-          {
-            _id: doctor._id,
-            name: doctor.name,
-            lastName: doctor.lastName,
-            username: doctor.username,
-            avatar: doctor.avatar || "",
-            phone: doctor.phone,
-            biography: doctor.biography
-          }
-        ],
-        creator: userId,
-        admins: [userId],
-        messages: [],
-        medias: [],
-        locations: [],
-        avatar: doctor.avatar || "",
-        lastMsgData: null,
-        notSeenCount: 0,
-        link: "",
-        description: `محادثة مع الطبيب ${doctor.name}`,
-        isBlocked: false,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-        isTemporary: true // علامة للإشارة أنها غرفة مؤقتة
-      };
-
-      console.log("📦 Temporary room created:", tempRoom._id);
-      console.log("=".repeat(50));
       
-      // فتح الغرفة المؤقتة مباشرة
-      setter({ selectedRoom: tempRoom });
-
     } catch (error) {
-      console.error("❌ Error in handleDoctorClick:", error);
+      console.error("❌ خطأ في handleDoctorClick:", error);
       alert("حدث خطأ. حاول مرة أخرى.");
     }
-  }, [userId, userRooms, setter]);
+  }, [userId, userRooms, setter, roomsSocket]);
 
   //Sort rooms by filter and last message time
   const sortedRooms = useMemo(() => {

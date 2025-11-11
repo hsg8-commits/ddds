@@ -155,43 +155,73 @@ const LeftBar = () => {
   };
 
   const handleDoctorClick = async (doctor: Doctor) => {
-    // إنشاء أو فتح محادثة مع الطبيب
-    const roomName = [userId, doctor._id].sort().join("-");
-    
-    // البحث عن الغرفة الموجودة
-    const existingRoom = userRooms.find((room) => 
-      room.type === "private" && 
-      room.participants?.some((p: any) => p._id === doctor._id || p === doctor._id)
-    );
-
-    if (existingRoom) {
-      setter({ selectedRoom: existingRoom });
-    } else {
-      // إنشاء غرفة جديدة - استخدام string[] للمشاركين بدلاً من objects
-      const currentDate = new Date().toISOString();
+    try {
+      console.log("Selected doctor:", doctor);
+      console.log("Current user ID:", userId);
       
-      const newRoom = {
-        _id: roomName,
-        name: roomName,
-        type: "private" as const,
-        participants: [userId, doctor._id], // تبسيط المشاركين إلى مصفوفة من المعرفات فقط
-        creator: userId,
-        admins: [userId],
-        messages: [],
-        medias: [],
-        locations: [],
-        avatar: doctor.avatar || "",
-        lastMsgData: null,
-        notSeenCount: 0,
-        link: "",
-        description: "",
-        isBlocked: false,
-        createdAt: currentDate,
-        updatedAt: currentDate
-      };
+      // البحث عن الغرفة الموجودة بطريقة أكثر دقة
+      const existingRoom = userRooms.find((room) => {
+        // التحقق من أن الغرفة خاصة وتحتوي على المستخدم الحالي والطبيب
+        if (room.type !== "private") return false;
+        
+        // التحقق من المشاركين
+        const roomParticipants = Array.isArray(room.participants) ? room.participants : [];
+        const hasCurrentUser = roomParticipants.some((p: any) => 
+          (typeof p === 'string' ? p : p._id || p.id) === userId
+        );
+        const hasDoctor = roomParticipants.some((p: any) => 
+          (typeof p === 'string' ? p : p._id || p.id) === doctor._id
+        );
+        
+        return hasCurrentUser && hasDoctor && roomParticipants.length === 2;
+      });
 
-      roomsSocket?.emit("createRoom", { newRoomData: newRoom });
-      setter({ selectedRoom: newRoom });
+      if (existingRoom) {
+        console.log("Found existing room:", existingRoom);
+        setter({ selectedRoom: existingRoom });
+      } else {
+        console.log("Creating new room for doctor:", doctor.name);
+        
+        // إنشاء معرف غرفة أقصر لتجنب قيود الطول
+        const shortRoomId = `dr_${doctor._id.slice(-8)}_${userId.slice(-8)}`;
+        const currentDate = new Date().toISOString();
+        
+        const newRoom = {
+          _id: shortRoomId,
+          name: `Dr. ${doctor.name} ${doctor.lastName || ''}`.trim(),
+          type: "private" as const,
+          participants: [userId, doctor._id],
+          creator: userId,
+          admins: [userId],
+          messages: [],
+          medias: [],
+          locations: [],
+          avatar: doctor.avatar || "",
+          lastMsgData: null,
+          notSeenCount: 0,
+          link: "",
+          description: `محادثة مع الطبيب ${doctor.name} ${doctor.lastName || ''}`,
+          isBlocked: false,
+          createdAt: currentDate,
+          updatedAt: currentDate
+        };
+
+        console.log("New room data:", newRoom);
+        
+        // إرسال البيانات للخادم
+        roomsSocket?.emit("createRoom", { newRoomData: newRoom });
+        
+        // تحديث الحالة المحلية
+        setter({ selectedRoom: newRoom });
+        
+        // إضافة الغرفة إلى قائمة الغرف المحلية مؤقتاً
+        if (userDataUpdater) {
+          const updatedRooms = [...userRooms, newRoom];
+          userDataUpdater({ rooms: updatedRooms });
+        }
+      }
+    } catch (error) {
+      console.error("Error in handleDoctorClick:", error);
     }
   };
 

@@ -451,9 +451,9 @@ io.on('connection', (socket) => {
           { $push: { messages: newMsg._id } }
         );
 
-        // معالجة AI التلقائية
+        // معالجة AI التلقائية مع دعم الصور والملفات
         const isRoomWithAI = await isAIRoom(Room, User, roomID);
-        if (isRoomWithAI && message) {
+        if (isRoomWithAI && (message || fileData)) {
           // انتظار ثانية واحدة ثم الرد
           setTimeout(async () => {
             await handleAIMessage({
@@ -462,8 +462,9 @@ io.on('connection', (socket) => {
               User,
               io,
               roomID,
-              userMessage: message,
-              senderID: sender
+              userMessage: message || 'تم إرسال ملف',
+              senderID: sender,
+              fileData: fileData
             });
           }, 1000);
         }

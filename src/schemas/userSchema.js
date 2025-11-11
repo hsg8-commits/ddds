@@ -21,6 +21,11 @@ export const schema = new Schema(
       type: [{ roomId: String, scrollPos: Number }],
       default: [],
     }, // track the last seen user message seen before leaving the room
+    // حقول المنصة الطبية
+    role: { type: String, enum: ["user", "doctor", "admin"], default: "user" },
+    isPaid: { type: Boolean, default: false },
+    assignedDoctor: { type: Schema.Types.ObjectId, ref: "User", default: null },
+    medicalHistory: [{ date: Date, diagnosis: String, prescription: String }],
   },
   { timestamps: true }
 );

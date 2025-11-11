@@ -1,5 +1,5 @@
-// AI Message Handler for Medical Assistant
-// معالج رسائل الذكاء الصناعي الطبي
+// AI Message Handler for Medical Assistant with Image Analysis
+// معالج رسائل الذكاء الصناعي الطبي مع دعم تحليل الصور
 
 import OpenAI from 'openai';
 import dotenv from 'dotenv';
@@ -25,12 +25,14 @@ const SYSTEM_MESSAGE = {
 5. كن لطيفاً ومتعاطفاً مع مخاوف المرضى
 6. إذا كنت غير متأكد من شيء، اذكر ذلك بوضوح
 7. شجع المستخدم على زيارة الطبيب للتشخيص الدقيق
+8. عند تحليل الصور الطبية (فحوصات، أشعة، نتائج تحاليل)، قدم شرحاً تفصيلياً وواضحاً
+9. عند استلام ملفات، تحقق من نوعها وقدم المساعدة المناسبة
 
 الرد يجب أن يكون بالعربية وبأسلوب ودود ومحترف.`,
 };
 
 /**
- * معالج رسائل AI
+ * معالج رسائل AI مع دعم الصور والملفات
  * @param {Object} params - معاملات الرسالة
  * @param {Object} params.Message - نموذج الرسالة
  * @param {Object} params.Room - نموذج الغرفة
@@ -39,8 +41,9 @@ const SYSTEM_MESSAGE = {
  * @param {string} params.roomID - معرف الغرفة
  * @param {string} params.userMessage - رسالة المستخدم
  * @param {string} params.senderID - معرف المرسل
+ * @param {Object} params.fileData - بيانات الملف إن وجد
  */
-export async function handleAIMessage({ Message, Room, User, io, roomID, userMessage, senderID }) {
+export async function handleAIMessage({ Message, Room, User, io, roomID, userMessage, senderID, fileData = null }) {
   try {
     // 1. الحصول على حساب AI
     const aiUser = await User.findOne({ username: AI_USERNAME });
@@ -75,18 +78,53 @@ export async function handleAIMessage({ Message, Room, User, io, roomID, userMes
       }))
       .slice(-10); // آخر 10 رسائل فقط
 
-    // 5. استدعاء OpenAI API
+    // 5. استدعاء OpenAI API مع دعم الصور
     let aiResponse;
     try {
+      const messages = [SYSTEM_MESSAGE, ...conversationHistory];
+      
+      // التحقق من وجود صورة أو ملف
+      if (fileData && fileData.url) {
+        const fileType = fileData.type?.toLowerCase() || '';
+        
+        // التحقق إذا كان الملف صورة
+        if (fileType.includes('image') || fileData.url.match(/\.(jpg|jpeg|png|gif|webp)$/i)) {
+          console.log('📸 Analyzing image with AI...');
+          
+          // إضافة رسالة مع الصورة للتحليل
+          messages.push({
+            role: "user",
+            content: [
+              {
+                type: "text",
+                text: userMessage || "يرجى تحليل هذه الصورة الطبية وإعطاء تفاصيل عما تراه"
+              },
+              {
+                type: "image_url",
+                image_url: {
+                  url: fileData.url,
+                  detail: "high"
+                }
+              }
+            ]
+          });
+        } else {
+          // ملف غير صورة - استخدام المعلومات المتاحة
+          messages.push({
+            role: "user",
+            content: `تم إرسال ملف: ${fileData.name || 'ملف'} (${fileType}). ${userMessage || ''}`
+          });
+        }
+      } else {
+        // رسالة نصية فقط
+        messages.push({ role: "user", content: userMessage });
+      }
+
       const response = await client.chat.completions.create({
         model: "gpt-4o-mini",
-        messages: [
-          SYSTEM_MESSAGE,
-          ...conversationHistory,
-          { role: "user", content: userMessage }
-        ],
+        messages: messages,
         temperature: 0.7,
-        max_tokens: 500,
+        max_tokens: 800,
       });
 
       aiResponse = response.choices[0]?.message?.content || "عذراً، لم أتمكن من الرد في الوقت الحالي.";

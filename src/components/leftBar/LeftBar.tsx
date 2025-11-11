@@ -178,7 +178,7 @@ const LeftBar = () => {
       roomsSocket?.emit("joining", existingRoom._id);
       setter({ selectedRoom: existingRoom });
     } else {
-      // إنشاء كائن User كامل للطبيب - نفس منطق SearchResultCard
+      // إنشاء كائن User كامل للطبيب مع إضافة الخصائص المفقودة
       const myUserData = {
         _id: userId,
         name: useUserStore.getState().name || "",
@@ -192,7 +192,9 @@ const LeftBar = () => {
         role: "user" as const,
         status: "online" as const,
         createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString()
+        updatedAt: new Date().toISOString(),
+        isLogin: true, // إضافة الخاصية المفقودة
+        roomMessageTrack: [] // إضافة الخاصية المفقودة
       };
 
       const doctorAsUser = {
@@ -208,7 +210,9 @@ const LeftBar = () => {
         role: "doctor" as const,
         status: doctor.status,
         createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString()
+        updatedAt: new Date().toISOString(),
+        isLogin: false, // إضافة الخاصية المفقودة
+        roomMessageTrack: [] // إضافة الخاصية المفقودة
       };
 
       // استخدام نفس المنطق الموجود في SearchResultCard

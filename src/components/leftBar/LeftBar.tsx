@@ -167,29 +167,19 @@ const LeftBar = () => {
     if (existingRoom) {
       setter({ selectedRoom: existingRoom });
     } else {
-      // إنشاء غرفة جديدة مع جميع الخصائص المطلوبة
+      // إنشاء غرفة جديدة - استخدام string[] للمشاركين بدلاً من objects
       const currentDate = new Date().toISOString();
       
       const newRoom = {
         _id: roomName,
         name: roomName,
-        type: "private",
-        participants: [
-          { _id: userId, name: "", username: "", avatar: "" },
-          { 
-            _id: doctor._id, 
-            name: doctor.name,
-            lastName: doctor.lastName,
-            username: doctor.username, 
-            avatar: doctor.avatar || "" 
-          }
-        ],
+        type: "private" as const,
+        participants: [userId, doctor._id], // تبسيط المشاركين إلى مصفوفة من المعرفات فقط
         creator: userId,
         admins: [userId],
         messages: [],
         medias: [],
         locations: [],
-        // إضافة جميع الخصائص المفقودة مع قيم افتراضية
         avatar: doctor.avatar || "",
         lastMsgData: null,
         notSeenCount: 0,

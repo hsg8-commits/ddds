@@ -4,8 +4,8 @@ import { ToastContainer } from "react-toastify";
 import AosAnimation from "@/components/modules/ui/AosAnimation";
 
 export const metadata: Metadata = {
-  title: "تواصل خاص",
-  description: "برنامج تواصل خاص وامن",
+  title: "منصه دوائك الطبي الذكي",
+  description: "تواصل با افضل الأطباء",
 };
 
 export default function RootLayout({

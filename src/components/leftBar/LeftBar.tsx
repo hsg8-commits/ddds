@@ -168,6 +168,8 @@ const LeftBar = () => {
       setter({ selectedRoom: existingRoom });
     } else {
       // إنشاء غرفة جديدة مع جميع الخصائص المطلوبة
+      const currentDate = new Date().toISOString();
+      
       const newRoom = {
         _id: roomName,
         name: roomName,
@@ -187,13 +189,15 @@ const LeftBar = () => {
         messages: [],
         medias: [],
         locations: [],
-        // إضافة الخصائص المفقودة مع قيم افتراضية
+        // إضافة جميع الخصائص المفقودة مع قيم افتراضية
         avatar: doctor.avatar || "",
         lastMsgData: null,
         notSeenCount: 0,
         link: "",
         description: "",
-        isBlocked: false
+        isBlocked: false,
+        createdAt: currentDate,
+        updatedAt: currentDate
       };
 
       roomsSocket?.emit("createRoom", { newRoomData: newRoom });

@@ -21,7 +21,7 @@ const AuthenticationForm = () => {
         />
 
         <h1 className="font-bold font-vazirBold text-4xl">
-          {isLogging ? "تسجيل الدخول" : "إنشاء حساب"} لتطبيق تواصل خاص وسري
+          {isLogging ? "تسجيل الدخول" : "إنشاء حساب"} لتطبيق منصه دوائك الطبي والذكي
         </h1>
 
         <p className="text-gray-400 text-center px-10 text-sm  font-vazirLight mt-3">

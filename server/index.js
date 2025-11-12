@@ -488,6 +488,39 @@ io.on('connection', (socket) => {
         participantsCount: newRoomData.participants?.length
       });
 
+      // ✅ التحقق من صحة البيانات المطلوبة
+      if (!newRoomData.name || !newRoomData.type) {
+        console.error('❌ Missing required fields: name or type');
+        socket.emit('createRoomError', { 
+          error: 'Missing required fields',
+          details: 'Room name and type are required'
+        });
+        return;
+      }
+
+      // ✅ تحويل participants إلى IDs فقط قبل البحث
+      let participantIDs = [];
+      if (Array.isArray(newRoomData.participants)) {
+        participantIDs = newRoomData.participants
+          .map((data) => {
+            if (typeof data === 'string') return data;
+            return data?._id || null;
+          })
+          .filter(Boolean); // إزالة القيم الفارغة
+        
+        console.log('✅ Participant IDs extracted:', participantIDs);
+        
+        // ✅ التحقق من وجود معرفات صحيحة
+        if (participantIDs.length === 0) {
+          console.error('❌ No valid participant IDs found');
+          socket.emit('createRoomError', { 
+            error: 'Invalid participants',
+            details: 'At least one valid participant ID is required'
+          });
+          return;
+        }
+      }
+
       let isRoomExist = false;
 
       if (newRoomData.type === 'private') {
@@ -499,15 +532,8 @@ io.on('connection', (socket) => {
       if (!isRoomExist) {
         let msgData = message;
 
-        // تحويل participants إلى IDs فقط
-        if (newRoomData.type === 'private' && Array.isArray(newRoomData.participants)) {
-          newRoomData.participants = newRoomData.participants
-            .map((data) => {
-              if (typeof data === 'string') return data;
-              return data?._id || null;
-            })
-            .filter(Boolean); // إزالة القيم الفارغة
-        }
+        // ✅ استخدام participantIDs المستخرجة
+        newRoomData.participants = participantIDs;
 
         // تحويل admins إلى IDs فقط إذا لم تكن بالفعل
         if (Array.isArray(newRoomData.admins)) {
@@ -519,10 +545,17 @@ io.on('connection', (socket) => {
             .filter(Boolean);
         }
 
+        // ✅ التحقق من عدم وجود _id فارغ
+        if (newRoomData._id === "" || newRoomData._id === null) {
+          delete newRoomData._id;
+        }
+
         console.log('✅ Creating room with data:', {
           name: newRoomData.name,
+          type: newRoomData.type,
           participants: newRoomData.participants,
-          admins: newRoomData.admins
+          admins: newRoomData.admins,
+          hasId: !!newRoomData._id
         });
 
         const newRoom = await Room.create(newRoomData);
@@ -552,10 +585,22 @@ io.on('connection', (socket) => {
         io.to(newRoom._id.toString()).emit('createRoom', newRoom);
       } else {
         console.log('ℹ️ Room already exists:', isRoomExist._id);
+        // ✅ إرسال الغرفة الموجودة للعميل
+        socket.join(isRoomExist._id.toString());
+        socket.emit('createRoom', isRoomExist);
       }
     } catch (createRoomError) {
       console.error('❌ Error in createRoom:', createRoomError);
       console.error('❌ Stack:', createRoomError.stack);
+      console.error('❌ Error name:', createRoomError.name);
+      console.error('❌ Error message:', createRoomError.message);
+      
+      // ✅ إرسال رسالة خطأ واضحة للعميل
+      socket.emit('createRoomError', {
+        error: createRoomError.message,
+        details: createRoomError.name,
+        stack: process.env.NODE_ENV === 'development' ? createRoomError.stack : undefined
+      });
     }
   });
 

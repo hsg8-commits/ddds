@@ -171,17 +171,21 @@ const LeftBar = () => {
       return (
         room._id === doctor._id || // For channel & groups
         room.name === userId + "-" + doctor._id || // for private chats
-        room.name === doctor._id + "-" + userId // for private chats
+        room.name === doctor._id + "-" + userId // for private chats (reversed order)
       );
     });
 
     console.log('🔍 Existing room found:', existingRoom ? existingRoom._id : 'none');
 
     if (existingRoom) {
-      // فتح الغرفة الموجودة
+      // ✅ فتح الغرفة الموجودة مباشرة
       console.log('✅ Opening existing room:', existingRoom._id);
+      setter({ 
+        isRoomDetailsShown: false, 
+        selectedRoom: existingRoom 
+      });
       roomsSocket?.emit("joining", existingRoom._id);
-      setter({ selectedRoom: existingRoom });
+      return; // ✅ الخروج من الدالة هنا
     } else {
       console.log('➕ Creating new room with doctor');
       // إنشاء كائن User كامل للطبيب مع إضافة الخصائص المفقودة
@@ -240,8 +244,57 @@ const LeftBar = () => {
         notSeenCount: 0
       };
 
-      setter({ isRoomDetailsShown: false, selectedRoom: userRoom });
-      roomsSocket?.emit("joining", doctor._id);
+      // ✅ إنشاء الغرفة على الخادم أولاً ثم فتحها
+      console.log('📤 Emitting createRoom event with data:', {
+        name: userRoom.name,
+        participants: [userId, doctor._id],
+        type: 'private'
+      });
+
+      // إرسال طلب إنشاء الغرفة مع بيانات صحيحة
+      roomsSocket?.emit("createRoom", { 
+        newRoomData: {
+          name: userRoom.name,
+          type: "private",
+          participants: [userId, doctor._id], // ✅ إرسال IDs فقط
+          admins: [userId, doctor._id],
+          avatar: userRoom.avatar,
+          creator: userId,
+          link: userRoom.link,
+          locations: [],
+          medias: [],
+          messages: []
+        }
+      });
+
+      // ✅ الاستماع لحدث إنشاء الغرفة
+      const handleRoomCreated = (createdRoom: any) => {
+        console.log('✅ Room created successfully:', createdRoom._id);
+        
+        // تحديث الغرفة بالمعرف الصحيح
+        userRoom._id = createdRoom._id;
+        
+        // فتح الغرفة بعد إنشائها
+        setter({ isRoomDetailsShown: false, selectedRoom: userRoom });
+        roomsSocket?.emit("joining", createdRoom._id);
+        
+        // ✅ إزالة المستمع بعد الاستخدام
+        roomsSocket?.off("createRoom", handleRoomCreated);
+        roomsSocket?.off("createRoomError", handleRoomError);
+      };
+
+      // ✅ معالجة الأخطاء
+      const handleRoomError = (error: any) => {
+        console.error('❌ Failed to create room:', error);
+        alert(`فشل إنشاء المحادثة: ${error.error || 'خطأ غير معروف'}`);
+        
+        // ✅ إزالة المستمعين
+        roomsSocket?.off("createRoom", handleRoomCreated);
+        roomsSocket?.off("createRoomError", handleRoomError);
+      };
+
+      roomsSocket?.once("createRoom", handleRoomCreated);
+      roomsSocket?.once("createRoomError", handleRoomError);
     }
   }, [userId, userRooms, setter, roomsSocket]);
 

@@ -30,7 +30,7 @@ export const POST = async (req: Request) => {
     if (!userData || !verifiedToken) {
       (await cookies()).delete("token");
       return Response.json(
-        { message: "No user exist with this username or password!" },
+        { message: "لايوجود مستخدم بهذا الاسم او كلمه المرور !" },
         { status: 401 }
       );
     }

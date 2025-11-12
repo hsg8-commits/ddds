@@ -19,7 +19,7 @@ export const POST = async (req: Request) => {
 
     if (!(await compare(password, userData.password)))
       return Response.json(
-        { message: "Incorrect phone or password" },
+        { message: "رقم الهاتف أو كلمة المرور غير صحيحة" },
         { status: 401 }
       );
 

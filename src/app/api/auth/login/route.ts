@@ -13,7 +13,7 @@ export const POST = async (req: Request) => {
     const userData = await UserSchema.findOne({ phone: phone.toString() });
     if (!userData)
       return Response.json(
-        { message: "No user exist with phone." },
+        { message: "لايوجد مستخدم لديه رقم الهاتف هاذا." },
         { status: 401 }
       );
 

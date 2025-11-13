@@ -1,5 +1,5 @@
-// AI Message Handler for Medical Assistant with Image Analysis
-// معالج رسائل الذكاء الصناعي الطبي مع دعم تحليل الصور
+// AI Message Handler for Medical Assistant with Typing Status
+// معالج رسائل الذكاء الصناعي الطبي مع حالة الكتابة
 
 import OpenAI from 'openai';
 import dotenv from 'dotenv';
@@ -11,6 +11,7 @@ const client = new OpenAI({
 });
 
 const AI_USERNAME = "medical_ai";
+const AI_TYPING_DELAY = 2000; // مدة إظهار حالة الكتابة بالميلي ثانية
 
 // System message للذكاء الصناعي الطبي
 const SYSTEM_MESSAGE = {
@@ -32,16 +33,56 @@ const SYSTEM_MESSAGE = {
 };
 
 /**
- * معالج رسائل AI مع دعم الصور والملفات
- * @param {Object} params - معاملات الرسالة
- * @param {Object} params.Message - نموذج الرسالة
- * @param {Object} params.Room - نموذج الغرفة
- * @param {Object} params.User - نموذج المستخدم
- * @param {Object} params.io - Socket.io instance
- * @param {string} params.roomID - معرف الغرفة
- * @param {string} params.userMessage - رسالة المستخدم
- * @param {string} params.senderID - معرف المرسل
- * @param {Object} params.fileData - بيانات الملف إن وجد
+ * دالة إظهار حالة الكتابة للذكاء الاصطناعي
+ */
+async function showAITypingStatus(io, roomID, aiUser, isTyping = true) {
+  try {
+    const typingData = {
+      userId: aiUser._id,
+      userName: aiUser.name,
+      userAvatar: aiUser.avatar,
+      isTyping: isTyping,
+      isAI: true,
+      timestamp: new Date()
+    };
+
+    // إرسال حالة الكتابة لجميع المستخدمين في الغرفة
+    io.to(roomID).emit('userTyping', typingData);
+    
+    console.log(`🤖 AI typing status: ${isTyping ? 'يكتب...' : 'توقف عن الكتابة'}`);
+  } catch (error) {
+    console.error('❌ Error showing AI typing status:', error);
+  }
+}
+
+/**
+ * دالة محاكاة كتابة تدريجية (كتابة الرد حرف بحرف)
+ */
+async function simulateTypingEffect(io, roomID, aiUser, message) {
+  try {
+    const words = message.split(' ');
+    let currentMessage = '';
+    
+    for (let i = 0; i < words.length; i++) {
+      currentMessage += (i > 0 ? ' ' : '') + words[i];
+      
+      // إرسال الجزء المكتوب حتى الآن
+      io.to(roomID).emit('aiTypingProgress', {
+        aiId: aiUser._id,
+        partialMessage: currentMessage,
+        isComplete: i === words.length - 1
+      });
+      
+      // تأخير قصير بين الكلمات لمحاكاة الكتابة الطبيعية
+      await new Promise(resolve => setTimeout(resolve, 150 + Math.random() * 100));
+    }
+  } catch (error) {
+    console.error('❌ Error in typing simulation:', error);
+  }
+}
+
+/**
+ * معالج رسائل AI مع دعم الصور والملفات وحالة الكتابة
  */
 export async function handleAIMessage({ Message, Room, User, io, roomID, userMessage, senderID, fileData = null }) {
   try {
@@ -57,7 +98,10 @@ export async function handleAIMessage({ Message, Room, User, io, roomID, userMes
       return;
     }
 
-    // 3. جلب آخر 10 رسائل من المحادثة للسياق
+    // 3. إظهار أن AI بدأ في الكتابة فوراً
+    await showAITypingStatus(io, roomID, aiUser, true);
+
+    // 4. جلب آخر 10 رسائل من المحادثة للسياق
     const room = await Room.findById(roomID).populate({
       path: 'messages',
       options: { sort: { createdAt: -1 }, limit: 10 },
@@ -66,19 +110,20 @@ export async function handleAIMessage({ Message, Room, User, io, roomID, userMes
 
     if (!room) {
       console.error('❌ Room not found');
+      await showAITypingStatus(io, roomID, aiUser, false);
       return;
     }
 
-    // 4. بناء تاريخ المحادثة
+    // 5. بناء تاريخ المحادثة
     const conversationHistory = room.messages
       .reverse()
       .map(msg => ({
         role: msg.sender._id.toString() === aiUser._id.toString() ? 'assistant' : 'user',
         content: msg.message || 'رسالة صوتية أو ملف',
       }))
-      .slice(-10); // آخر 10 رسائل فقط
+      .slice(-10);
 
-    // 5. استدعاء OpenAI API مع دعم الصور
+    // 6. استدعاء OpenAI API مع دعم الصور
     let aiResponse;
     try {
       const messages = [SYSTEM_MESSAGE, ...conversationHistory];
@@ -87,11 +132,9 @@ export async function handleAIMessage({ Message, Room, User, io, roomID, userMes
       if (fileData && fileData.url) {
         const fileType = fileData.type?.toLowerCase() || '';
         
-        // التحقق إذا كان الملف صورة
         if (fileType.includes('image') || fileData.url.match(/\.(jpg|jpeg|png|gif|webp)$/i)) {
           console.log('📸 Analyzing image with AI...');
           
-          // إضافة رسالة مع الصورة للتحليل
           messages.push({
             role: "user",
             content: [
@@ -109,16 +152,18 @@ export async function handleAIMessage({ Message, Room, User, io, roomID, userMes
             ]
           });
         } else {
-          // ملف غير صورة - استخدام المعلومات المتاحة
           messages.push({
             role: "user",
             content: `تم إرسال ملف: ${fileData.name || 'ملف'} (${fileType}). ${userMessage || ''}`
           });
         }
       } else {
-        // رسالة نصية فقط
         messages.push({ role: "user", content: userMessage });
       }
+
+      // محاكاة وقت المعالجة (1-3 ثواني)
+      const processingDelay = 1000 + Math.random() * 2000;
+      await new Promise(resolve => setTimeout(resolve, processingDelay));
 
       const response = await client.chat.completions.create({
         model: "gpt-4o-mini",
@@ -133,7 +178,16 @@ export async function handleAIMessage({ Message, Room, User, io, roomID, userMes
       aiResponse = "عذراً، حدث خطأ في معالجة طلبك. يرجى المحاولة مرة أخرى.";
     }
 
-    // 6. إنشاء رسالة رد من AI
+    // 7. محاكاة الكتابة التدريجية (اختياري)
+    await simulateTypingEffect(io, roomID, aiUser, aiResponse);
+
+    // 8. تأخير قصير قبل إرسال الرد النهائي
+    await new Promise(resolve => setTimeout(resolve, 500));
+
+    // 9. إخفاء حالة الكتابة
+    await showAITypingStatus(io, roomID, aiUser, false);
+
+    // 10. إنشاء رسالة رد من AI
     const aiMessageData = {
       sender: aiUser._id,
       message: aiResponse,
@@ -151,13 +205,13 @@ export async function handleAIMessage({ Message, Room, User, io, roomID, userMes
       .populate('sender', 'name lastName username avatar _id')
       .lean();
 
-    // 7. إضافة الرسالة للغرفة
+    // 11. إضافة الرسالة للغرفة
     await Room.findOneAndUpdate(
       { _id: roomID },
       { $push: { messages: aiMessage._id } }
     );
 
-    // 8. إرسال الرسالة عبر Socket.io
+    // 12. إرسال الرسالة النهائية عبر Socket.io
     io.to(roomID).emit('newMessage', populatedAiMessage);
     io.to(roomID).emit('lastMsgUpdate', populatedAiMessage);
     io.to(roomID).emit('updateLastMsgData', { msgData: populatedAiMessage, roomID });
@@ -166,15 +220,17 @@ export async function handleAIMessage({ Message, Room, User, io, roomID, userMes
 
   } catch (error) {
     console.error('❌ Error in AI message handler:', error);
+    
+    // في حالة الخطأ، تأكد من إخفاء حالة الكتابة
+    const aiUser = await User.findOne({ username: AI_USERNAME });
+    if (aiUser) {
+      await showAITypingStatus(io, roomID, aiUser, false);
+    }
   }
 }
 
 /**
  * التحقق من أن الغرفة تحتوي على AI
- * @param {Object} Room - نموذج الغرفة
- * @param {Object} User - نموذج المستخدم  
- * @param {string} roomID - معرف الغرفة
- * @returns {Promise<boolean>}
  */
 export async function isAIRoom(Room, User, roomID) {
   try {
@@ -188,5 +244,35 @@ export async function isAIRoom(Room, User, roomID) {
   } catch (error) {
     console.error('❌ Error checking AI room:', error);
     return false;
+  }
+}
+
+/**
+ * دالة تحديث حالة AI إلى متصل
+ */
+export async function setAIOnlineStatus(User, io) {
+  try {
+    const aiUser = await User.findOneAndUpdate(
+      { username: AI_USERNAME },
+      { 
+        status: 'online',
+        lastSeen: new Date()
+      },
+      { new: true }
+    );
+
+    if (aiUser) {
+      // إرسال حالة الاتصال لجميع المستخدمين
+      io.emit('userStatusUpdate', {
+        userId: aiUser._id,
+        status: 'online',
+        isAI: true,
+        timestamp: new Date()
+      });
+      
+      console.log('🤖 AI status updated to ONLINE');
+    }
+  } catch (error) {
+    console.error('❌ Error updating AI status:', error);
   }
 }

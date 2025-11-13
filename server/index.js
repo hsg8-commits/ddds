@@ -167,7 +167,7 @@ const connectDB = async () => {
   }
 };
 
-// دالة إنشاء حساب الذكاء الصناعي الطبي
+// دالة إنشاء حساب الذكاء الصناعي الطبي المحسنة
 async function createAIUserAccount() {
   try {
     const aiUsername = "medical_ai";
@@ -180,20 +180,40 @@ async function createAIUserAccount() {
         name: "المساعد الطبي",
         lastName: "الذكي",
         username: aiUsername,
-      password: hashedPassword,
-        phone: "+967777777766",
-        avatar: "ai-doctor-avatar.png",
-        biography: "أنا مساعد طبي ذكي هنا لمساعدتك في الاستفسارات الطبية",
-        role: "user",
+        password: hashedPassword,
+        phone: "777777772",
+        avatar: "https://ui-avatars.com/api/?name=AI+Doctor&background=4f46e5&color=ffffff&size=200",
+        biography: "🤖 أنا مساعد طبي ذكي متاح 24/7 لمساعدتك في الاستفسارات الطبية والنصائح الصحية",
+        role: "ai_assistant",
         isPaid: true,
         status: "online",
-        type: "private",
+        type: "ai",
+        isVerified: true,
+        lastSeen: new Date(),
+        // خصائص إضافية للذكاء الاصطناعي
+        aiConfig: {
+          responseTime: "instant",
+          languages: ["ar", "en"],
+          specialties: ["general_medicine", "health_consultation", "medical_advice"],
+          availability: "24/7"
+        }
       });
       
       console.log('✅ تم إنشاء حساب الذكاء الصناعي الطبي:', aiUser._id);
     } else {
-      console.log('✅ حساب الذكاء الصناعي موجود بالفعل:', aiUser._id);
+      // تحديث الحالة إلى متصل
+      aiUser = await User.findOneAndUpdate(
+        { username: aiUsername },
+        { 
+          status: "online",
+          lastSeen: new Date()
+        },
+        { new: true }
+      );
+      console.log('✅ حساب الذكاء الصناعي موجود ومتصل:', aiUser._id);
     }
+
+    return aiUser;
   } catch (error) {
     console.error('❌ خطأ في إنشاء حساب AI:', error);
   }

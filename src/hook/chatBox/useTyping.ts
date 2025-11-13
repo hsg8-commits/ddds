@@ -24,12 +24,32 @@ const useTyping = ({ rooms, roomID, myName, setTypings }: useTypingProps) => {
       );
     };
 
+    // ✅ معالج حدث userTyping الجديد من AI
+    const handleUserTyping = (data: { userId: string; userName: string; isTyping: boolean; isAI?: boolean }) => {
+      if (data.userName !== myName) {
+        if (data.isTyping) {
+          // إضافة اسم المستخدم لقائمة الكاتبين
+          setTypings((prev) => {
+            if (!prev.includes(data.userName)) {
+              return [...prev, data.userName];
+            }
+            return prev;
+          });
+        } else {
+          // إزالة اسم المستخدم من قائمة الكاتبين
+          setTypings((prev) => prev.filter((name) => name !== data.userName));
+        }
+      }
+    };
+
     rooms?.on("typing", handleTyping);
     rooms?.on("stop-typing", handleStopTyping);
+    rooms?.on("userTyping", handleUserTyping); // ✅ حدث جديد
 
     return () => {
       rooms?.off("typing", handleTyping);
       rooms?.off("stop-typing", handleStopTyping);
+      rooms?.off("userTyping", handleUserTyping); // ✅ تنظيف
     };
   }, [rooms, roomID, myName, setTypings]);
 };

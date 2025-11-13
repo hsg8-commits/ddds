@@ -180,9 +180,19 @@ const LeftBar = () => {
     if (existingRoom) {
       // ✅ فتح الغرفة الموجودة مباشرة
       console.log('✅ Opening existing room:', existingRoom._id);
+      
+      // ✅ التأكد من أن الغرفة تحتوي على بيانات كاملة لتجنب خطأ undefined
+      const safeRoom = {
+        ...existingRoom,
+        participants: existingRoom.participants || [],
+        admins: existingRoom.admins || [],
+        messages: existingRoom.messages || [],
+        _id: existingRoom._id || "",
+      };
+      
       setter({ 
         isRoomDetailsShown: false, 
-        selectedRoom: existingRoom 
+        selectedRoom: safeRoom 
       });
       roomsSocket?.emit("joining", existingRoom._id);
       return; // ✅ الخروج من الدالة هنا

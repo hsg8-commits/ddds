@@ -4,7 +4,8 @@ import User from "@/models/user";
 import useGlobalStore from "@/stores/globalStore";
 import useUserStore, { UserStoreUpdater } from "@/stores/userStore";
 import useSockets from "@/stores/useSockets";
-import { toaster, uploadFile } from "@/utils";
+import { toaster } from "@/utils";
+import { uploadToCloudinary } from "@/utils/file/CloudinaryUpload";
 import Image from "next/image";
 import {
   Dispatch,
@@ -48,6 +49,7 @@ const EditInfo = ({
   const [updatedRoomName, setUpdatedRoomName] = useState(name);
   const [isEmojiOpen, setIsEmojiOpen] = useState(false);
   const [imageLoadError, setImageLoadError] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
   
   const inputRef = useRef<HTMLInputElement | null>(null);
   const { setter, onlineUsers, selectedRoom } = useGlobalStore(
@@ -79,9 +81,24 @@ const EditInfo = ({
   const submitInfo = useCallback(async () => {
     const socket = useSockets.getState().rooms;
     try {
-      const uploadedImageUrl = imageFile
-        ? await uploadFile(imageFile)
-        : roomImage;
+      setIsLoading(true);
+      let uploadedImageUrl = roomImage;
+
+      // إذا كان هناك ملف صورة جديد، قم برفعه إلى Cloudinary
+      if (imageFile) {
+        const uploadResult = await uploadToCloudinary(
+          imageFile,
+          (progress) => {
+            setUploadProgress(Math.round(progress));
+          }
+        );
+
+        if (uploadResult.success && uploadResult.url) {
+          uploadedImageUrl = uploadResult.url;
+        } else {
+          throw new Error(uploadResult.error || "فشل رفع الصورة");
+        }
+      }
 
       socket?.emit("updateRoomData", {
         roomID,
@@ -101,9 +118,14 @@ const EditInfo = ({
         });
         setSubmitChanges(false);
         setter({ rightBarRoute: "/" });
+        setIsLoading(false);
+        setUploadProgress(0);
+        toaster("success", "تم تحديث معلومات " + (type === "group" ? "المجموعة" : "القناة") + " بنجاح");
       });
     } catch (error) {
       console.error(error);
+      setIsLoading(false);
+      setUploadProgress(0);
       toaster("error", "فشل رفع الصورة، حاول مرة أخرى");
     }
   }, [
@@ -114,6 +136,7 @@ const EditInfo = ({
     setSubmitChanges,
     setter,
     updatedRoomName,
+    type,
   ]);
 
   useEffect(() => {
@@ -157,30 +180,43 @@ const EditInfo = ({
   return (
     <div className="relative h-full">
       <div className="flex items-center gap-3 w-full mt-2 p-4">
-        {roomImage && !imageLoadError ? (
-          <Image
-            src={roomImage}
-            onClick={() => setRoomImage(null)}
-            className="cursor-pointer object-cover shrink-0 size-13 rounded-full"
-            width={60}
-            height={60}
-            alt=""
-            onError={() => setImageLoadError(true)}
-            onLoad={() => setImageLoadError(false)}
-            unoptimized={roomImage.includes('cloudinary')}
-          />
-        ) : !roomImage || imageLoadError ? (
-          <label htmlFor="imgUpload" className="cursor-pointer">
-            <input
-              type="file"
-              className="hidden"
-              id="imgUpload"
-              accept="image/*"
-              onChange={getImgUrl}
+        <div className="relative">
+          {roomImage && !imageLoadError ? (
+            <Image
+              src={roomImage}
+              onClick={() => !isLoading && setRoomImage(null)}
+              className="cursor-pointer object-cover shrink-0 size-13 rounded-full"
+              width={60}
+              height={60}
+              alt=""
+              onError={() => setImageLoadError(true)}
+              onLoad={() => setImageLoadError(false)}
+              unoptimized={roomImage.includes('cloudinary')}
             />
-            <TbCameraPlus className="flex-center bg-darkBlue rounded-full size-13 p-3.5" />
-          </label>
-        ) : null}
+          ) : !roomImage || imageLoadError ? (
+            <label htmlFor="imgUpload" className={`cursor-pointer ${isLoading ? 'opacity-50 cursor-not-allowed' : ''}`}>
+              <input
+                type="file"
+                className="hidden"
+                id="imgUpload"
+                accept="image/*"
+                onChange={getImgUrl}
+                disabled={isLoading}
+              />
+              <TbCameraPlus className="flex-center bg-darkBlue rounded-full size-13 p-3.5" />
+            </label>
+          ) : null}
+          
+          {/* مؤشر التحميل */}
+          {isLoading && uploadProgress > 0 && (
+            <div className="absolute inset-0 bg-black/70 flex-center flex-col gap-1 rounded-full z-10">
+              <Loading classNames="text-white" size="sm" />
+              <span className="text-white text-xs font-bold">
+                {uploadProgress}%
+              </span>
+            </div>
+          )}
+        </div>
 
         <div
           className={`flex items-center gap-3 border-b-1 ${

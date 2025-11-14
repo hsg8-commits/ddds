@@ -12,7 +12,7 @@ const CreateRoomBtn = () => {
 
   const dropDownItems = [
     {
-      title: "إنشاء قناة جديدة",
+      title: "إنشاء نصائح طبية جديده",
       onClick: () => {
         setter({ createRoomType: "channel" });
         setIsDropDownOpen(false);

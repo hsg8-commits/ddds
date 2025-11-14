@@ -11,7 +11,7 @@ const ChatFolders = ({ name, count, isActive, onClick }: Props) => {
     private: "خاص",
     group: "مجموعات",
     channel: "النصائح",
-    bot: "الأطباء"
+    bot: "قنوات"
   };
   
   return (

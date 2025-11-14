@@ -181,20 +181,43 @@ const LeftBar = () => {
       // ✅ فتح الغرفة الموجودة مباشرة
       console.log('✅ Opening existing room:', existingRoom._id);
       
-      // ✅ التأكد من أن الغرفة تحتوي على بيانات كاملة لتجنب خطأ undefined
-      const safeRoom = {
-        ...existingRoom,
-        participants: existingRoom.participants || [],
-        admins: existingRoom.admins || [],
-        messages: existingRoom.messages || [],
-        _id: existingRoom._id || "",
-      };
+      try {
+        // ✅ التأكد من أن الغرفة تحتوي على بيانات كاملة لتجنب خطأ undefined
+        // إعادة بناء بيانات المشاركين بشكل آمن
+        const safeParticipants = (existingRoom.participants || []).map(p => {
+          if (typeof p === 'string') {
+            // إذا كان المشارك مجرد ID، نبحث عنه في قائمة الغرف
+            const foundUser = userRooms
+              .flatMap(r => r.participants)
+              .find(user => typeof user !== 'string' && user._id === p);
+            return foundUser || p;
+          }
+          return p;
+        });
+
+        const safeRoom = {
+          ...existingRoom,
+          participants: safeParticipants,
+          admins: existingRoom.admins || [],
+          messages: existingRoom.messages || [],
+          _id: existingRoom._id || "",
+          name: existingRoom.name || "",
+          type: existingRoom.type || "private",
+        };
+        
+        setter({ 
+          isRoomDetailsShown: false, 
+          selectedRoom: safeRoom 
+        });
+        
+        // إرسال حدث joining
+        roomsSocket?.emit("joining", existingRoom._id);
+        
+      } catch (error) {
+        console.error('❌ Error opening existing room:', error);
+        alert('حدث خطأ في فتح المحادثة. يرجى المحاولة مرة أخرى.');
+      }
       
-      setter({ 
-        isRoomDetailsShown: false, 
-        selectedRoom: safeRoom 
-      });
-      roomsSocket?.emit("joining", existingRoom._id);
       return; // ✅ الخروج من الدالة هنا
     } else {
       console.log('➕ Creating new room with doctor');

@@ -213,6 +213,18 @@ async function createAIUserAccount() {
       console.log('✅ حساب الذكاء الصناعي موجود ومتصل:', aiUser._id);
     }
 
+    // ✅ إضافة AI للقائمة المتصلين بشكل دائم
+    const aiInOnlineList = onlineUsers.find(u => u.userID === aiUser._id.toString());
+    if (!aiInOnlineList) {
+      onlineUsers.push({
+        userID: aiUser._id.toString(),
+        socketID: 'ai-permanent-connection',
+        status: 'online',
+        isPermanent: true // علامة للتعرف على اتصال AI الدائم
+      });
+      console.log('✅ تم إضافة AI للقائمة المتصلين');
+    }
+
     return aiUser;
   } catch (error) {
     console.error('❌ خطأ في إنشاء حساب AI:', error);
@@ -1526,8 +1538,14 @@ io.on('connection', (socket) => {
     
     const disconnectedUser = findUserSocket(socket.id, true);
     
-    // إزالة من قائمة المستخدمين المتصلين
-    onlineUsers = onlineUsers.filter((data) => data.socketID !== socket.id);
+    // ✅ إزالة من قائمة المستخدمين المتصلين (لكن ليس AI)
+    onlineUsers = onlineUsers.filter((data) => {
+      // الحفاظ على اتصال AI الدائم
+      if (data.isPermanent) {
+        return true;
+      }
+      return data.socketID !== socket.id;
+    });
     
     // إزالة من الغرف النشطة
     activeRooms.forEach((roomSockets, roomId) => {

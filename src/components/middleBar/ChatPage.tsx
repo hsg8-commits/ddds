@@ -55,7 +55,13 @@ const ChatPage = () => {
   const [editData, setEditData] = useState<MessageModel | null>(null);
   const [imageLoadError, setImageLoadError] = useState(false);
   
-  const { messages, type, participants } = selectedRoom!;
+  // ✅ معالجة آمنة للغرفة المحددة
+  const { messages = [], type = "private", participants = [] } = selectedRoom || {};
+
+  // ✅ فحص وجود الغرفة قبل العرض
+  if (!selectedRoom) {
+    return null; // لا تعرض شيئاً إذا لم توجد غرفة محددة
+  }
 
   // Avatar, name and _id information from room or user information (in private mode)
   const {

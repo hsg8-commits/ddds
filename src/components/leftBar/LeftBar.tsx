@@ -141,21 +141,25 @@ const LeftBar = () => {
           try {
             const registration = await navigator.serviceWorker.ready;
             
-            // بناء بيانات الإشعار مع تحديد نوع dir بشكل صريح
+            // ✅ تشغيل اهتزاز الجهاز إذا كان مدعوماً
+            if ('vibrate' in navigator) {
+              navigator.vibrate([200, 100, 200]);
+            }
+            
+            // بناء بيانات الإشعار بدون خصائص غير مدعومة في TypeScript
             const notificationData: NotificationOptions = {
               body: newMsg.message || "لديك رسالة جديدة",
               icon: newMsg.sender.avatar || "/images/favicon.svg",
               badge: "/images/favicon-96x96.png",
               tag: newMsg.roomID, // استخدام roomID كـ tag لتجميع الرسائل
               requireInteraction: false,
-              vibrate: [200, 100, 200],
               data: {
                 url: window.location.origin + `/?roomID=${newMsg.roomID}`,
                 roomID: newMsg.roomID,
                 senderID: newMsg.sender._id,
                 messageID: newMsg._id
               },
-              dir: "rtl" as NotificationDirection, // ✅ تحديد النوع بشكل صريح
+              dir: "rtl" as NotificationDirection,
               silent: false
             };
             

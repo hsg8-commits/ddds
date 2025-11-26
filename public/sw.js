@@ -151,3 +151,130 @@ self.addEventListener("message", (event) => {
     self.skipWaiting();
   }
 });
+
+// ==========================================
+// 🔔 Push Notification Handling
+// ==========================================
+
+// معالج الإشعارات القادمة
+self.addEventListener('push', (event) => {
+  console.log('📬 Push notification received:', event);
+  
+  let notificationData = {
+    title: 'رسالة جديدة',
+    body: 'لديك رسالة جديدة',
+    icon: '/images/logo.png',
+    badge: '/images/badge.png',
+    tag: 'new-message',
+    requireInteraction: false,
+    data: {}
+  };
+
+  try {
+    if (event.data) {
+      const data = event.data.json();
+      notificationData = {
+        title: data.title || notificationData.title,
+        body: data.body || data.message || notificationData.body,
+        icon: data.icon || data.avatar || notificationData.icon,
+        badge: notificationData.badge,
+        tag: data.roomID || data.tag || notificationData.tag,
+        requireInteraction: data.requireInteraction !== undefined ? data.requireInteraction : false,
+        data: {
+          url: data.url || '/',
+          roomID: data.roomID,
+          senderID: data.senderID,
+          messageID: data.messageID,
+          ...data
+        }
+      };
+    }
+  } catch (error) {
+    console.error('❌ Error parsing push data:', error);
+  }
+
+  event.waitUntil(
+    self.registration.showNotification(notificationData.title, {
+      body: notificationData.body,
+      icon: notificationData.icon,
+      badge: notificationData.badge,
+      tag: notificationData.tag,
+      requireInteraction: notificationData.requireInteraction,
+      data: notificationData.data,
+      vibrate: [200, 100, 200],
+      actions: [
+        { action: 'open', title: 'فتح', icon: '/images/open-icon.png' },
+        { action: 'close', title: 'إغلاق', icon: '/images/close-icon.png' }
+      ]
+    })
+  );
+});
+
+// معالج النقر على الإشعار
+self.addEventListener('notificationclick', (event) => {
+  console.log('🔔 Notification clicked:', event);
+  
+  event.notification.close();
+
+  const action = event.action;
+  const data = event.notification.data || {};
+  
+  // إذا ضغط المستخدم على "إغلاق"
+  if (action === 'close') {
+    return;
+  }
+
+  // بناء URL الهدف
+  let targetUrl = self.origin + '/';
+  
+  if (data.roomID) {
+    // فتح المحادثة المحددة
+    targetUrl = `${self.origin}/?roomID=${data.roomID}`;
+  } else if (data.url) {
+    targetUrl = data.url.startsWith('http') ? data.url : self.origin + data.url;
+  }
+
+  event.waitUntil(
+    clients.matchAll({ 
+      type: 'window', 
+      includeUncontrolled: true 
+    }).then((clientList) => {
+      // البحث عن نافذة مفتوحة في نفس الأصل
+      let appClient = null;
+      for (let i = 0; i < clientList.length; i++) {
+        const client = clientList[i];
+        const clientUrl = new URL(client.url);
+        const targetUrlObj = new URL(targetUrl);
+        
+        // تحقق من نفس الأصل
+        if (clientUrl.origin === targetUrlObj.origin) {
+          appClient = client;
+          break;
+        }
+      }
+      
+      if (appClient) {
+        // إرسال رسالة للعميل لفتح المحادثة
+        appClient.postMessage({
+          type: 'OPEN_ROOM',
+          roomID: data.roomID,
+          messageID: data.messageID,
+          senderID: data.senderID
+        });
+        
+        // التركيز على النافذة
+        return appClient.focus();
+      } else {
+        // فتح نافذة جديدة
+        if (clients.openWindow) {
+          return clients.openWindow(targetUrl);
+        }
+      }
+    })
+  );
+});
+
+// معالج إغلاق الإشعار
+self.addEventListener('notificationclose', (event) => {
+  console.log('🔕 Notification closed:', event);
+});

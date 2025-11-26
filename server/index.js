@@ -39,6 +39,8 @@ const UserSchema = new Schema({
   isPaid: { type: Boolean, default: false },
   assignedDoctor: { type: Schema.Types.ObjectId, ref: "Doctor", default: null },
   medicalHistory: [{ date: Date, diagnosis: String, prescription: String }],
+  // حقل الحظر
+  blockedUsers: [{ type: Schema.Types.ObjectId, ref: "User", default: [] }],
 }, { timestamps: true });
 
 // Message Schema مع دعم الملفات
@@ -421,6 +423,26 @@ io.on('connection', (socket) => {
   socket.on('newMessage', async (data, callback) => {
     try {
       const { roomID, sender, message, replayData, voiceData = null, tempId, fileData = null } = data;
+      
+      // ✅ التحقق من الحظر قبل إرسال الرسالة
+      const room = await Room.findById(roomID).populate('participants', 'blockedUsers');
+      if (room && room.type === 'private') {
+        const otherParticipant = room.participants.find(
+          (p) => p._id && p._id.toString() !== sender
+        );
+        
+        if (otherParticipant && otherParticipant.blockedUsers) {
+          const isBlocked = otherParticipant.blockedUsers.some(
+            (blockedId) => blockedId.toString() === sender
+          );
+          
+          if (isBlocked) {
+            console.log(`🚫 Message blocked: User ${sender} is blocked by ${otherParticipant._id}`);
+            if (callback) callback({ success: false, error: 'blocked', message: 'لا يمكن إرسال الرسالة للمستخدم المحظور' });
+            return;
+          }
+        }
+      }
       
       const msgData = {
         sender,
@@ -813,7 +835,16 @@ io.on('connection', (socket) => {
         await updateUserOnlineStatus(userID, 'online');
       }
 
-      io.to([...socket.rooms]).emit('updateOnlineUsers', onlineUsers);
+      // ✅ تصفية المستخدمين المتصلين: إخفاء المحظورين
+      const currentUser = await User.findById(userID).select('blockedUsers');
+      const blockedByMe = currentUser?.blockedUsers?.map(id => id.toString()) || [];
+      
+      // إرسال قائمة المتصلين مع تصفية المحظورين
+      const filteredOnlineUsers = onlineUsers.filter(user => 
+        !blockedByMe.includes(user.userID) && user.userID !== userID.toString()
+      );
+      
+      io.to([...socket.rooms]).emit('updateOnlineUsers', filteredOnlineUsers);
 
       const getRoomsData = async () => {
         const promises = userRooms.map(async (room) => {
@@ -1527,6 +1558,94 @@ io.on('connection', (socket) => {
         success: false,
         error: 'Failed to fetch room call history' 
       });
+    }
+  });
+
+  // ==========================================
+  // 🔥 Block/Unblock User Management
+  // ==========================================
+  
+  // حظر مستخدم
+  socket.on('blockUser', async ({ userID, targetUserID }) => {
+    try {
+      console.log(`🚫 User ${userID} blocking ${targetUserID}`);
+      
+      // إضافة المستخدم المستهدف لقائمة المحظورين
+      const updatedUser = await User.findByIdAndUpdate(
+        userID,
+        { $addToSet: { blockedUsers: targetUserID } },
+        { new: true }
+      ).select('blockedUsers');
+
+      if (!updatedUser) {
+        socket.emit('blockUserError', { error: 'User not found' });
+        return;
+      }
+
+      // إرسال تأكيد للمستخدم
+      socket.emit('blockUser', { 
+        success: true,
+        targetUserID,
+        blockedUsers: updatedUser.blockedUsers
+      });
+
+      console.log(`✅ User ${targetUserID} blocked successfully by ${userID}`);
+    } catch (error) {
+      console.error('❌ Error blocking user:', error);
+      socket.emit('blockUserError', { error: 'Failed to block user' });
+    }
+  });
+
+  // إلغاء حظر مستخدم
+  socket.on('unblockUser', async ({ userID, targetUserID }) => {
+    try {
+      console.log(`✅ User ${userID} unblocking ${targetUserID}`);
+      
+      // إزالة المستخدم المستهدف من قائمة المحظورين
+      const updatedUser = await User.findByIdAndUpdate(
+        userID,
+        { $pull: { blockedUsers: targetUserID } },
+        { new: true }
+      ).select('blockedUsers');
+
+      if (!updatedUser) {
+        socket.emit('unblockUserError', { error: 'User not found' });
+        return;
+      }
+
+      // إرسال تأكيد للمستخدم
+      socket.emit('unblockUser', { 
+        success: true,
+        targetUserID,
+        blockedUsers: updatedUser.blockedUsers
+      });
+
+      console.log(`✅ User ${targetUserID} unblocked successfully by ${userID}`);
+    } catch (error) {
+      console.error('❌ Error unblocking user:', error);
+      socket.emit('unblockUserError', { error: 'Failed to unblock user' });
+    }
+  });
+
+  // الحصول على قائمة المحظورين
+  socket.on('getBlockedUsers', async ({ userID }) => {
+    try {
+      const user = await User.findById(userID)
+        .select('blockedUsers')
+        .populate('blockedUsers', 'name lastName username avatar _id');
+
+      if (!user) {
+        socket.emit('getBlockedUsersError', { error: 'User not found' });
+        return;
+      }
+
+      socket.emit('getBlockedUsers', { 
+        success: true,
+        blockedUsers: user.blockedUsers || []
+      });
+    } catch (error) {
+      console.error('❌ Error getting blocked users:', error);
+      socket.emit('getBlockedUsersError', { error: 'Failed to get blocked users' });
     }
   });
 

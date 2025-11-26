@@ -73,10 +73,47 @@ const LeftBar = () => {
       e.preventDefault();
     };
     document.addEventListener("contextmenu", handleContextMenu);
+    
+    // ✅ معالج رسائل Service Worker لفتح المحادثة عند النقر على الإشعار
+    const handleServiceWorkerMessage = (event: MessageEvent) => {
+      if (event.data && event.data.type === 'OPEN_ROOM') {
+        const { roomID } = event.data;
+        
+        console.log('📬 Service Worker requested to open room:', roomID);
+        
+        // البحث عن الغرفة في قائمة الغرف
+        const targetRoom = userRooms.find((room) => room._id === roomID);
+        
+        if (targetRoom) {
+          // فتح الغرفة
+          setter({ 
+            selectedRoom: targetRoom,
+            isRoomDetailsShown: false 
+          });
+          
+          // إرسال حدث joining
+          roomsSocket?.emit('joining', roomID);
+          
+          console.log('✅ Room opened:', roomID);
+        } else {
+          console.warn('⚠️ Room not found:', roomID);
+          // يمكن هنا إعادة تحميل الغرفة من الخادم
+          roomsSocket?.emit('joining', roomID);
+        }
+      }
+    };
+    
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.addEventListener('message', handleServiceWorkerMessage);
+    }
+    
     return () => {
       document.removeEventListener("contextmenu", handleContextMenu);
+      if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.removeEventListener('message', handleServiceWorkerMessage);
+      }
     };
-  }, []);
+  }, [userRooms, setter, roomsSocket]);
 
   useEffect(() => {
     document.addEventListener("click", () => (interactUser.current = true));
@@ -96,23 +133,49 @@ const LeftBar = () => {
   useEffect(() => {
     const handleNewMessage = async (newMsg: Message) => {
       if (newMsg.roomID !== selectedRoom?._id || !selectedRoom?._id) {
-        if (document.visibilityState !== "visible") {
-          if (
-            "serviceWorker" in navigator &&
-            Notification.permission === "granted"
-          ) {
+        // ✅ إرسال الإشعار سواء كان التطبيق مفتوحاً أم لا
+        if (
+          "serviceWorker" in navigator &&
+          Notification.permission === "granted"
+        ) {
+          try {
             const registration = await navigator.serviceWorker.ready;
-            registration.showNotification(newMsg.sender.name || "", {
-              body: newMsg.message || "",
+            
+            // بناء بيانات الإشعار
+            const notificationData = {
+              title: newMsg.sender.name || "رسالة جديدة",
+              body: newMsg.message || "لديك رسالة جديدة",
               icon: newMsg.sender.avatar || "/images/favicon.svg",
-              data: { url: window.location.href },
-              dir: "auto",
               badge: "/images/favicon-96x96.png",
-              silent: true,
-            });
+              tag: newMsg.roomID, // استخدام roomID كـ tag لتجميع الرسائل
+              requireInteraction: false,
+              vibrate: [200, 100, 200],
+              data: {
+                url: window.location.origin + `/?roomID=${newMsg.roomID}`,
+                roomID: newMsg.roomID,
+                senderID: newMsg.sender._id,
+                messageID: newMsg._id
+              },
+              dir: "rtl",
+              silent: false
+            };
+            
+            // إرسال الإشعار
+            await registration.showNotification(
+              notificationData.title,
+              notificationData
+            );
+            
+            console.log('✅ Notification sent:', notificationData.title);
+          } catch (error) {
+            console.error('❌ Error showing notification:', error);
           }
         }
-        playRingSound();
+        
+        // تشغيل صوت التنبيه فقط إذا كان التطبيق مفتوحاً
+        if (document.visibilityState === "visible") {
+          playRingSound();
+        }
       }
     };
 

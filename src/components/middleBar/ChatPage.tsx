@@ -22,6 +22,7 @@ import Loading from "../modules/ui/Loading";
 import User from "@/models/user";
 import DropDown from "../modules/ui/DropDown";
 import { IoLogOutOutline } from "react-icons/io5";
+import { AiOutlineDelete } from "react-icons/ai";
 import useModalStore from "@/stores/modalStore";
 import Modal from "../modules/ui/Modal";
 import { scrollToMessage } from "@/utils";
@@ -168,6 +169,93 @@ const ChatPage = () => {
     });
   };
 
+  // التحقق من حالة الحظر
+  const isUserBlocked = useMemo(() => {
+    const currentUser = useUserStore.getState();
+    return currentUser.blockedUsers?.includes(_id) || false;
+  }, [_id]);
+
+  // معالج حظر/إلغاء حظر المستخدم
+  const handleBlockUser = useCallback(() => {
+    setShowRoomOptions(false);
+    
+    if (isUserBlocked) {
+      // إلغاء الحظر
+      modalSetter((prev) => ({
+        ...prev,
+        isOpen: true,
+        title: "إلغاء حظر المستخدم",
+        bodyText: `هل تريد إلغاء حظر ${name || ""}؟`,
+        onSubmit: async () => {
+          roomsSocket?.emit('unblockUser', { 
+            userID: myID, 
+            targetUserID: _id 
+          });
+          
+          roomsSocket?.once('unblockUser', ({ success, blockedUsers }) => {
+            if (success) {
+              userDataUpdater((prev) => ({
+                ...prev,
+                blockedUsers: blockedUsers
+              }));
+              toaster("success", "تم إلغاء حظر المستخدم بنجاح");
+            }
+          });
+        },
+      }));
+    } else {
+      // حظر المستخدم
+      modalSetter((prev) => ({
+        ...prev,
+        isOpen: true,
+        title: "حظر المستخدم",
+        bodyText: `هل تريد حظر ${name || ""}؟ لن تتمكن من إرسال أو استقبال رسائل منه.`,
+        onSubmit: async () => {
+          roomsSocket?.emit('blockUser', { 
+            userID: myID, 
+            targetUserID: _id 
+          });
+          
+          roomsSocket?.once('blockUser', ({ success, blockedUsers }) => {
+            if (success) {
+              userDataUpdater((prev) => ({
+                ...prev,
+                blockedUsers: blockedUsers
+              }));
+              toaster("success", "تم حظر المستخدم بنجاح");
+            }
+          });
+        },
+      }));
+    }
+  }, [isUserBlocked, _id, name, myID, roomsSocket, modalSetter, userDataUpdater]);
+
+  // حذف جميع الرسائل من المحادثة
+  const handleDeleteAllMessages = useCallback(() => {
+    setShowRoomOptions(false);
+    modalSetter((prev) => ({
+      ...prev,
+      isOpen: true,
+      title: "حذف جميع الرسائل",
+      bodyText: "هل تريد حذف جميع الرسائل في هذه المحادثة؟",
+      isCheckedText: "حذف للجميع أيضاً",
+      onSubmit: async () => {
+        const currentIsChecked = useModalStore.getState().isChecked;
+        
+        // حذف جميع الرسائل
+        messages.forEach((msg) => {
+          roomsSocket?.emit("deleteMsg", {
+            forAll: currentIsChecked,
+            msgID: msg._id,
+            roomID: selectedRoom?._id,
+          });
+        });
+        
+        toaster("success", "تم حذف جميع الرسائل بنجاح");
+      },
+    }));
+  }, [messages, selectedRoom, roomsSocket, modalSetter]);
+
   const dropDownItems = [
     {
       title: "Go to first message",
@@ -179,6 +267,16 @@ const ChatPage = () => {
           scrollToMessage(messages[0]?._id);
         }
       },
+    },
+    messages.length > 0 && {
+      title: "حذف جميع الرسائل",
+      icon: <AiOutlineDelete className="size-5 text-gray-400" />,
+      onClick: handleDeleteAllMessages,
+    },
+    type === "private" && _id !== myID && {
+      title: isUserBlocked ? "إلغاء حظر المستخدم" : "حظر المستخدم",
+      icon: <IoLogOutOutline className="size-5 text-gray-400" />,
+      onClick: handleBlockUser,
     },
     type !== "private" && {
       title: type === "group" ? "Leave group" : "Leave Channel",
@@ -380,7 +478,9 @@ const ChatPage = () => {
                 ) : (
                   <>
                     {type === "private" ? (
-                      onlineUsers.some((data) => data.userID === _id) ? (
+                      isUserBlocked ? (
+                        "ظهر منذ زمن طويل"
+                      ) : onlineUsers.some((data) => data.userID === _id) ? (
                         <span className="text-lightBlue">متصل</span>
                       ) : (
                         "ظهر مؤخراً"

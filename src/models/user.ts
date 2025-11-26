@@ -14,6 +14,7 @@ export default interface User {
   role?: "user" | "doctor" | "admin";
   isLogin: boolean;
   roomMessageTrack: { roomId: string; scrollPos: number }[];
+  blockedUsers?: string[];
   createdAt: string;
   updatedAt: string;
 }

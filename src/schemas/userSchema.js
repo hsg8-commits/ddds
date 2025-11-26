@@ -26,6 +26,8 @@ export const schema = new Schema(
     isPaid: { type: Boolean, default: false },
     assignedDoctor: { type: Schema.Types.ObjectId, ref: "User", default: null },
     medicalHistory: [{ date: Date, diagnosis: String, prescription: String }],
+    // حقل الحظر
+    blockedUsers: [{ type: Schema.Types.ObjectId, ref: "User", default: [] }],
   },
   { timestamps: true }
 );

@@ -141,9 +141,8 @@ const LeftBar = () => {
           try {
             const registration = await navigator.serviceWorker.ready;
             
-            // بناء بيانات الإشعار
-            const notificationData = {
-              title: newMsg.sender.name || "رسالة جديدة",
+            // بناء بيانات الإشعار مع تحديد نوع dir بشكل صريح
+            const notificationData: NotificationOptions = {
               body: newMsg.message || "لديك رسالة جديدة",
               icon: newMsg.sender.avatar || "/images/favicon.svg",
               badge: "/images/favicon-96x96.png",
@@ -156,17 +155,17 @@ const LeftBar = () => {
                 senderID: newMsg.sender._id,
                 messageID: newMsg._id
               },
-              dir: "rtl",
+              dir: "rtl" as NotificationDirection, // ✅ تحديد النوع بشكل صريح
               silent: false
             };
             
             // إرسال الإشعار
             await registration.showNotification(
-              notificationData.title,
+              newMsg.sender.name || "رسالة جديدة",
               notificationData
             );
             
-            console.log('✅ Notification sent:', notificationData.title);
+            console.log('✅ Notification sent:', newMsg.sender.name || "رسالة جديدة");
           } catch (error) {
             console.error('❌ Error showing notification:', error);
           }

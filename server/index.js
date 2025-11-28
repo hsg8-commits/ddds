@@ -424,16 +424,23 @@ io.on('connection', (socket) => {
     try {
       const { roomID, sender, message, replayData, voiceData = null, tempId, fileData = null } = data;
       
+      // ✅ التحقق من صحة البيانات
+      if (!roomID || !sender) {
+        console.error('❌ Invalid message data: missing roomID or sender');
+        if (callback) callback({ success: false, error: 'Invalid data' });
+        return;
+      }
+      
       // ✅ التحقق من الحظر قبل إرسال الرسالة
-      const room = await Room.findById(roomID).populate('participants', 'blockedUsers');
+      const room = await Room.findById(roomID).populate('participants', 'blockedUsers _id');
       if (room && room.type === 'private') {
         const otherParticipant = room.participants.find(
-          (p) => p._id && p._id.toString() !== sender
+          (p) => p && p._id && p._id.toString() !== sender.toString()
         );
         
-        if (otherParticipant && otherParticipant.blockedUsers) {
+        if (otherParticipant && otherParticipant.blockedUsers && Array.isArray(otherParticipant.blockedUsers)) {
           const isBlocked = otherParticipant.blockedUsers.some(
-            (blockedId) => blockedId.toString() === sender
+            (blockedId) => blockedId && blockedId.toString() === sender.toString()
           );
           
           if (isBlocked) {
@@ -884,6 +891,8 @@ io.on('connection', (socket) => {
   // ==========================================
   socket.on('joining', async (query, defaultRoomData = null) => {
     try {
+      const currentUserID = findUserSocket(socket.id, true)?.userID;
+      
       let roomData = await Room.findOne({
         $or: [{ _id: query }, { name: query }],
       })
@@ -908,6 +917,28 @@ io.on('connection', (socket) => {
 
       if (roomData && roomData?.type === 'private') {
         await roomData.populate('participants');
+        
+        // ✅ إخفاء بيانات المستخدم المحظور
+        if (currentUserID) {
+          const currentUser = await User.findById(currentUserID).select('blockedUsers');
+          const blockedByMe = currentUser?.blockedUsers?.map(id => id.toString()) || [];
+          
+          // تعديل بيانات المشاركين لإخفاء بيانات المحظورين
+          if (roomData.participants && Array.isArray(roomData.participants)) {
+            roomData.participants = roomData.participants.map(participant => {
+              if (participant && participant._id && blockedByMe.includes(participant._id.toString())) {
+                // إخفاء الصورة الشخصية والبيانات للمحظور
+                return {
+                  ...participant.toObject(),
+                  avatar: null, // إخفاء الصورة
+                  biography: '', // إخفاء السيرة الذاتية
+                  status: 'offline' // إظهار أنه غير متصل
+                };
+              }
+              return participant;
+            });
+          }
+        }
       }
 
       if (!roomData?._id) {
@@ -1066,18 +1097,23 @@ io.on('connection', (socket) => {
   // ==========================================
   socket.on('typing', async (data) => {
     try {
+      if (!data || !data.sender || !data.sender.name || !data.roomID || !data.sender._id) {
+        return; // تجاهل البيانات غير الصحيحة
+      }
+      
       if (!typings.includes(data.sender.name)) {
         // ✅ التحقق من الحظر قبل إرسال حالة "يكتب"
         const room = await Room.findById(data.roomID).populate('participants', '_id blockedUsers');
-        if (room && room.type === 'private') {
+        if (room && room.type === 'private' && room.participants && Array.isArray(room.participants)) {
           // إرسال حالة "يكتب" فقط للمستخدمين غير المحظورين
           const participants = room.participants;
           for (const participant of participants) {
-            if (participant._id.toString() !== data.sender._id) {
+            if (participant && participant._id && participant._id.toString() !== data.sender._id.toString()) {
               // التحقق من أن المرسل ليس محظوراً من قبل هذا المشارك
-              const isBlocked = participant.blockedUsers?.some(
-                (blockedId) => blockedId.toString() === data.sender._id
-              );
+              const isBlocked = participant.blockedUsers && Array.isArray(participant.blockedUsers) && 
+                participant.blockedUsers.some(
+                  (blockedId) => blockedId && blockedId.toString() === data.sender._id.toString()
+                );
               
               if (!isBlocked) {
                 // إرسال حالة "يكتب" فقط إذا لم يكن محظوراً
@@ -1103,17 +1139,22 @@ io.on('connection', (socket) => {
 
   socket.on('stop-typing', async (data) => {
     try {
+      if (!data || !data.sender || !data.sender.name || !data.roomID || !data.sender._id) {
+        return; // تجاهل البيانات غير الصحيحة
+      }
+      
       typings = typings.filter((tl) => tl !== data.sender.name);
       
       // ✅ التحقق من الحظر قبل إرسال حالة "توقف عن الكتابة"
       const room = await Room.findById(data.roomID).populate('participants', '_id blockedUsers');
-      if (room && room.type === 'private') {
+      if (room && room.type === 'private' && room.participants && Array.isArray(room.participants)) {
         const participants = room.participants;
         for (const participant of participants) {
-          if (participant._id.toString() !== data.sender._id) {
-            const isBlocked = participant.blockedUsers?.some(
-              (blockedId) => blockedId.toString() === data.sender._id
-            );
+          if (participant && participant._id && participant._id.toString() !== data.sender._id.toString()) {
+            const isBlocked = participant.blockedUsers && Array.isArray(participant.blockedUsers) && 
+              participant.blockedUsers.some(
+                (blockedId) => blockedId && blockedId.toString() === data.sender._id.toString()
+              );
             
             if (!isBlocked) {
               const participantSocket = onlineUsers.find(u => u.userID === participant._id.toString());

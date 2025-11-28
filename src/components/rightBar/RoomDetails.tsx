@@ -42,24 +42,12 @@ const RoomDetails = ({ selectedRoomData, myData, roomData }: RoomDetailsProps) =
     onlineUsers = [],
   } = useGlobalStore((state) => state) || {};
 
-  // التحقق من حالة الحظر
-  const isUserBlockedByMe = myData?.blockedUsers?.some(
-    (blockedId: string) => blockedId === _id
-  ) || false;
-
   const roomSocket = useSockets((state) => state.rooms);
 
   const { _id: myID, rooms } = myData || {};
   const { participants, type, _id: roomID } = { ...selectedRoomData };
 
-  const onlineUsersCount =
-    (participants
-      ? participants.filter((participant) => {
-          const pId = typeof participant === "string" ? participant : participant._id;
-          return onlineUsers?.some((data) => data.userID === pId);
-        }).length
-      : 0) || 0;
-
+  // تعريف متغيرات roomData أولاً
   const {
     avatar = "",
     name = "",
@@ -69,6 +57,19 @@ const RoomDetails = ({ selectedRoomData, myData, roomData }: RoomDetailsProps) =
     _id,
     biography,
   } = roomData || {};
+
+  // الآن يمكن استخدام _id بأمان
+  const isUserBlockedByMe = myData?.blockedUsers?.some(
+    (blockedId: string) => blockedId === _id
+  ) || false;
+
+  const onlineUsersCount =
+    (participants
+      ? participants.filter((participant) => {
+          const pId = typeof participant === "string" ? participant : participant._id;
+          return onlineUsers?.some((data) => data.userID === pId);
+        }).length
+      : 0) || 0;
 
   useEffect(() => {
     if (!roomSocket || !roomID || !isRoomDetailsShown) return;
@@ -188,7 +189,7 @@ const RoomDetails = ({ selectedRoomData, myData, roomData }: RoomDetailsProps) =
       />
     ) : (
       <ProfileGradients
-        id={id || _id || "default-avatar-id"} // ⬅️ **الإصلاح هنا:** تم توفير قيمة افتراضية للـ id.
+        id={id || _id || "default-avatar-id"}
         classNames={`size-${Math.round(size / 4)} text-center text-lg flex-center ${className}`}
       >
         {displayName && displayName.length > 0

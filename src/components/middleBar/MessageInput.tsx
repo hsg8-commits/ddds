@@ -1,6 +1,6 @@
 import { BsEmojiSmile } from "react-icons/bs";
 import { IoMdClose } from "react-icons/io";
-import { ChangeEvent, useCallback, useEffect, useRef, useState } from "react";
+import { ChangeEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { MdAttachFile, MdModeEditOutline, MdOutlineDone } from "react-icons/md";
 import { BsFillReplyFill } from "react-icons/bs";
 import VoiceMessageRecorder from "./voice/VoiceMessageRecorder";

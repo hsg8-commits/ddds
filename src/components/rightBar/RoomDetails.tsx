@@ -42,6 +42,11 @@ const RoomDetails = ({ selectedRoomData, myData, roomData }: RoomDetailsProps) =
     onlineUsers = [],
   } = useGlobalStore((state) => state) || {};
 
+  // التحقق من حالة الحظر
+  const isUserBlockedByMe = myData?.blockedUsers?.some(
+    (blockedId: string) => blockedId === _id
+  ) || false;
+
   const roomSocket = useSockets((state) => state.rooms);
 
   const { _id: myID, rooms } = myData || {};
@@ -217,7 +222,9 @@ const RoomDetails = ({ selectedRoomData, myData, roomData }: RoomDetailsProps) =
 
             <div className="text-sm text-darkGray font-vazirBold line-clamp-1 whitespace-normal text-nowrap">
               {type === "private" ? (
-                isUserOnline(_id) ? (
+                isUserBlockedByMe ? (
+                  "آخر ظهور منذ زمن طويل"
+                ) : isUserOnline(_id) ? (
                   <span className="text-lightBlue">متصل</span>
                 ) : (
                   "ظهر مؤخراً"

@@ -170,10 +170,10 @@ const ChatPage = () => {
   };
 
   // التحقق من حالة الحظر
+  const { blockedUsers = [] } = useUserStore((state) => state);
   const isUserBlocked = useMemo(() => {
-    const currentUser = useUserStore.getState();
-    return currentUser.blockedUsers?.includes(_id) || false;
-  }, [_id]);
+    return blockedUsers?.includes(_id) || false;
+  }, [_id, blockedUsers]);
 
   // معالج حظر/إلغاء حظر المستخدم
   const handleBlockUser = useCallback(() => {
@@ -412,6 +412,22 @@ const ChatPage = () => {
       style={{ transform: "none" }}
       className="relative h-dvh flex flex-col chatBackground w-full"
     >
+      {/* شريط التحذير عند حظر المستخدم */}
+      {type === "private" && _id !== myID && isUserBlocked && (
+        <div className="w-full bg-red-600/90 text-white px-4 py-3 flex items-center justify-between">
+          <div className="flex-1">
+            <p className="text-sm font-vazirBold">تم حظر هذا المستخدم</p>
+            <p className="text-xs opacity-90">قم بإلغاء الحظر لإرسال واستقبال الرسائل</p>
+          </div>
+          <button
+            onClick={handleBlockUser}
+            className="bg-white text-red-600 px-4 py-2 rounded-md text-sm font-vazirBold hover:bg-gray-100 transition-colors"
+          >
+            إلغاء الحظر
+          </button>
+        </div>
+      )}
+      
       {/* Chat Header */}
       <div
         id="chatContentHeader"
@@ -478,9 +494,7 @@ const ChatPage = () => {
                 ) : (
                   <>
                     {type === "private" ? (
-                      isUserBlocked ? (
-                        "ظهر منذ زمن طويل"
-                      ) : onlineUsers.some((data) => data.userID === _id) ? (
+                      onlineUsers.some((data) => data.userID === _id) ? (
                         <span className="text-lightBlue">متصل</span>
                       ) : (
                         "ظهر مؤخراً"

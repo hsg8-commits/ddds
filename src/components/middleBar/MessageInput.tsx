@@ -50,6 +50,19 @@ const MessageInput = ({
   const myData = useUserStore((state) => state);
   const setter = useGlobalStore((state) => state.setter);
   const roomId = selectedRoom?._id;
+  
+  // التحقق من الحظر
+  const isUserBlocked = useMemo(() => {
+    if (selectedRoom?.type === 'private') {
+      const otherUser = selectedRoom.participants?.find(
+        (p) => typeof p !== 'string' && p._id !== myData._id
+      );
+      if (otherUser && typeof otherUser !== 'string') {
+        return myData.blockedUsers?.includes(otherUser._id) || false;
+      }
+    }
+    return false;
+  }, [selectedRoom, myData._id, myData.blockedUsers]);
 
   //Helper function to reset the height of TextArea
   const resetTextAreaHeight = () => {
@@ -615,8 +628,9 @@ const MessageInput = ({
 
   // Setting the ability to send messages in rooms
   const canSendMessage =
-    selectedRoom?.type !== "channel" ||
-    selectedRoom.admins.includes(myData._id);
+    !isUserBlocked &&
+    (selectedRoom?.type !== "channel" ||
+    selectedRoom.admins.includes(myData._id));
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     // On mobile: Enter = newline (like Shift+Enter on desktop)
@@ -791,10 +805,9 @@ const MessageInput = ({
           </>
         ) : (
           <div
-            onClick={() => setIsMuted((prev) => !prev)}
-            className="absolute cursor-pointer flex items-center justify-center pt-3 text-center w-full mb-1"
+            className="absolute flex items-center justify-center pt-3 text-center w-full mb-1 text-gray-400"
           >
-            {isMuted ? "إلغاء الكتم" : "كتم الصوت"}
+            {isUserBlocked ? "تم حظر هذا المستخدم" : (isMuted ? "إلغاء الكتم" : "كتم الصوت")}
           </div>
         )}
       </div>

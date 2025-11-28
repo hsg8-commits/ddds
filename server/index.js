@@ -437,8 +437,9 @@ io.on('connection', (socket) => {
           );
           
           if (isBlocked) {
-            console.log(`🚫 Message blocked: User ${sender} is blocked by ${otherParticipant._id}`);
-            if (callback) callback({ success: false, error: 'blocked', message: 'لا يمكن إرسال الرسالة للمستخدم المحظور' });
+            console.log(`🚫 Message blocked silently: User ${sender} is blocked by ${otherParticipant._id}`);
+            // ✅ نرسل نجاح وهمي للمستخدم المحظور حتى لا يعرف أنه محظور
+            if (callback) callback({ success: true, _id: 'blocked_' + Date.now() });
             return;
           }
         }
@@ -1063,16 +1064,72 @@ io.on('connection', (socket) => {
   // ==========================================
   // 🔥 Typing Indicators
   // ==========================================
-  socket.on('typing', (data) => {
-    if (!typings.includes(data.sender.name)) {
+  socket.on('typing', async (data) => {
+    try {
+      if (!typings.includes(data.sender.name)) {
+        // ✅ التحقق من الحظر قبل إرسال حالة "يكتب"
+        const room = await Room.findById(data.roomID).populate('participants', '_id blockedUsers');
+        if (room && room.type === 'private') {
+          // إرسال حالة "يكتب" فقط للمستخدمين غير المحظورين
+          const participants = room.participants;
+          for (const participant of participants) {
+            if (participant._id.toString() !== data.sender._id) {
+              // التحقق من أن المرسل ليس محظوراً من قبل هذا المشارك
+              const isBlocked = participant.blockedUsers?.some(
+                (blockedId) => blockedId.toString() === data.sender._id
+              );
+              
+              if (!isBlocked) {
+                // إرسال حالة "يكتب" فقط إذا لم يكن محظوراً
+                const participantSocket = onlineUsers.find(u => u.userID === participant._id.toString());
+                if (participantSocket) {
+                  io.to(participantSocket.socketID).emit('typing', data);
+                }
+              }
+            }
+          }
+        } else {
+          // للمجموعات والقنوات، أرسل بشكل طبيعي
+          io.to(data.roomID).emit('typing', data);
+        }
+        typings.push(data.sender.name);
+      }
+    } catch (error) {
+      console.error('❌ Error in typing event:', error);
+      // في حالة الخطأ، أرسل بشكل طبيعي
       io.to(data.roomID).emit('typing', data);
-      typings.push(data.sender.name);
     }
   });
 
-  socket.on('stop-typing', (data) => {
-    typings = typings.filter((tl) => tl !== data.sender.name);
-    io.to(data.roomID).emit('stop-typing', data);
+  socket.on('stop-typing', async (data) => {
+    try {
+      typings = typings.filter((tl) => tl !== data.sender.name);
+      
+      // ✅ التحقق من الحظر قبل إرسال حالة "توقف عن الكتابة"
+      const room = await Room.findById(data.roomID).populate('participants', '_id blockedUsers');
+      if (room && room.type === 'private') {
+        const participants = room.participants;
+        for (const participant of participants) {
+          if (participant._id.toString() !== data.sender._id) {
+            const isBlocked = participant.blockedUsers?.some(
+              (blockedId) => blockedId.toString() === data.sender._id
+            );
+            
+            if (!isBlocked) {
+              const participantSocket = onlineUsers.find(u => u.userID === participant._id.toString());
+              if (participantSocket) {
+                io.to(participantSocket.socketID).emit('stop-typing', data);
+              }
+            }
+          }
+        }
+      } else {
+        io.to(data.roomID).emit('stop-typing', data);
+      }
+    } catch (error) {
+      console.error('❌ Error in stop-typing event:', error);
+      io.to(data.roomID).emit('stop-typing', data);
+    }
   });
 
   // ==========================================
@@ -1679,8 +1736,37 @@ io.on('connection', (socket) => {
       console.log(`👋 User ${disconnectedUser.userID} went offline`);
     }
     
-    // تحديث المستخدمين المتصلين للجميع
-    io.emit('updateOnlineUsers', onlineUsers);
+    // ✅ تحديث المستخدمين المتصلين مع تصفية المحظورين لكل مستخدم
+    // إرسال قائمة مخصصة لكل مستخدم متصل (بدون المحظورين)
+    for (const onlineUser of onlineUsers) {
+      try {
+        const user = await User.findById(onlineUser.userID).select('blockedUsers');
+        if (user && user.blockedUsers) {
+          // تصفية المستخدمين المحظورين من القائمة
+          const filteredOnlineUsers = onlineUsers.filter(ou => 
+            !user.blockedUsers.some(blockedId => blockedId.toString() === ou.userID)
+          );
+          
+          const targetSocket = io.sockets.sockets.get(onlineUser.socketID);
+          if (targetSocket) {
+            targetSocket.emit('updateOnlineUsers', filteredOnlineUsers);
+          }
+        } else {
+          // إرسال القائمة الكاملة إذا لم يكن لديه محظورين
+          const targetSocket = io.sockets.sockets.get(onlineUser.socketID);
+          if (targetSocket) {
+            targetSocket.emit('updateOnlineUsers', onlineUsers);
+          }
+        }
+      } catch (error) {
+        console.error('❌ Error filtering online users for user:', onlineUser.userID, error);
+        // في حالة الخطأ، أرسل القائمة الكاملة
+        const targetSocket = io.sockets.sockets.get(onlineUser.socketID);
+        if (targetSocket) {
+          targetSocket.emit('updateOnlineUsers', onlineUsers);
+        }
+      }
+    }
   });
 
   // معالجة الأخطاء في الـ socket

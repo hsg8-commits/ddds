@@ -29,6 +29,7 @@ const useUserStore = create<UserStore>((set) => ({
   status: "offline",
   updatedAt: "",
   roomMessageTrack: [],
+  blockedUsers: [],
   isInitialSet: false,
   notSeenCounts: {},
 

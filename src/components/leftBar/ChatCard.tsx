@@ -72,14 +72,10 @@ const ChatCard = ({
       ) as User | undefined;
 
       if (participant) {
-        // ✅ التحقق من الحظر - إخفاء الصورة إذا كان محظوراً
-        const { blockedUsers = [] } = useUserStore.getState();
-        const isBlocked = blockedUsers.some((id: string) => id === participant._id);
-        
         return {
           name: participant.name,
           lastName: participant?.lastName,
-          avatar: isBlocked ? null : participant.avatar, // إخفاء الصورة للمحظور
+          avatar: participant.avatar, // الصورة تأتي من السيرفر محدثة
           _id: participant._id,
         };
       }
@@ -96,17 +92,10 @@ const ChatCard = ({
     return { name: roomName, avatar: roomAvatar, _id };
   }, [_id, myID, participants, roomAvatar, roomName, type]);
 
-  const isOnline = useMemo(() => {
-    // ✅ التحقق من الحظر - إخفاء حالة الاتصال للمحظور
-    const { blockedUsers = [] } = useUserStore.getState();
-    const isBlocked = blockedUsers.some((id: string) => id === roomID);
-    
-    if (isBlocked) {
-      return false; // إخفاء حالة الاتصال للمحظور
-    }
-    
-    return onlineUsers.some((user) => user.userID === roomID);
-  }, [onlineUsers, roomID]);
+  const isOnline = useMemo(
+    () => onlineUsers.some((user) => user.userID === roomID),
+    [onlineUsers, roomID]
+  );
 
   const latestMessageTime =
     formatDate(lastMsgData?.createdAt) || formatDate(createdAt);

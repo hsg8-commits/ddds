@@ -494,7 +494,10 @@ const ChatPage = () => {
                 ) : (
                   <>
                     {type === "private" ? (
-                      onlineUsers.some((data) => data.userID === _id) ? (
+                      !avatar || avatar === null ? (
+                        // إذا الصورة مخفية → معناها أنا محظور
+                        "آخر ظهور منذ زمن طويل"
+                      ) : onlineUsers.some((data) => data.userID === _id) ? (
                         <span className="text-lightBlue">متصل</span>
                       ) : (
                         "ظهر مؤخراً"

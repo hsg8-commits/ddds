@@ -1,37 +1,37 @@
-/** @type {import('next').NextConfig} */
-const nextConfig = {
+import type { NextConfig } from "next";
+import type { Configuration } from "webpack";
+
+const nextConfig: NextConfig = {
   reactStrictMode: false,
 
   eslint: {
     ignoreDuringBuilds: true,
   },
 
-  // Performance
   swcMinify: true,
   compress: true,
 
-  // ❌ تعطيل optimizeCss لأنه يسبب مشكلة critters
   experimental: {
-    optimizeCss: false,
+    optimizeCss: false,          // إيقاف الميزة التي تسبب خطأ critters
     optimizeServerReact: true,
   },
 
-  webpack: (config) => {
-    // تمكين Tree Shaking
-    config.optimization.usedExports = true;
+  webpack: (config: Configuration) => {
+    if (config.optimization) {
+      config.optimization.usedExports = true;
 
-    // تحسين فصل الحزم
-    config.optimization.splitChunks = {
-      ...config.optimization.splitChunks,
-      cacheGroups: {
-        ...(config.optimization.splitChunks?.cacheGroups || {}),
-        vendor: {
-          test: /[\\/]node_modules[\\/]/,
-          name: "vendors",
-          chunks: "all",
+      config.optimization.splitChunks = {
+        ...config.optimization.splitChunks,
+        cacheGroups: {
+          ...(config.optimization.splitChunks?.cacheGroups || {}),
+          vendor: {
+            test: /[\\/]node_modules[\\/]/,
+            name: "vendors",
+            chunks: "all",
+          },
         },
-      },
-    };
+      };
+    }
 
     return config;
   },

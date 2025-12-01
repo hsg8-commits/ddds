@@ -408,8 +408,6 @@ const useConnection = ({
         multiplex: true,
         // Connection quality optimization
         rememberUpgrade: true,
-        // Compression settings
-        compression: true,
         // Enhanced timeouts for poor connections
         pingTimeout: 60000,
         pingInterval: 25000,

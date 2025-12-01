@@ -135,7 +135,28 @@ const CallSchema = new Schema({
   },
 }, { timestamps: true });
 
-// Create models
+// Enhanced schemas with performance indexes
+UserSchema.index({ username: 1 }, { unique: true });
+UserSchema.index({ phone: 1 }, { unique: true });
+UserSchema.index({ status: 1 });
+UserSchema.index({ 'roomMessageTrack.roomId': 1 });
+
+MessageSchema.index({ roomID: 1, createdAt: -1 });
+MessageSchema.index({ sender: 1 });
+MessageSchema.index({ tempId: 1 });
+MessageSchema.index({ seen: 1 });
+MessageSchema.index({ 'roomID': 1, 'hideFor': 1, 'createdAt': -1 });
+
+RoomSchema.index({ participants: 1 });
+RoomSchema.index({ type: 1 });
+RoomSchema.index({ creator: 1 });
+RoomSchema.index({ name: 1 });
+
+CallSchema.index({ caller: 1, receiver: 1 });
+CallSchema.index({ roomID: 1, startTime: -1 });
+CallSchema.index({ status: 1 });
+
+// Create models with enhanced schemas
 const User = mongoose.models.User || model('User', UserSchema);
 const Message = mongoose.models.Message || model('Message', MessageSchema);
 const Room = mongoose.models.Room || model('Room', RoomSchema);
@@ -154,9 +175,22 @@ const connectDB = async () => {
 
     if (mongoose.connection.readyState === 0) {
       await mongoose.connect(MONGODB_URI, {
-        maxPoolSize: 10,
+        maxPoolSize: 20, // Increased pool size for better performance
+        minPoolSize: 5,
         serverSelectionTimeoutMS: 5000,
         socketTimeoutMS: 45000,
+        family: 4, // Use IPv4, skip trying IPv6
+        keepAlive: true,
+        keepAliveInitialDelay: 300000,
+        // Enhanced performance settings
+        maxIdleTimeMS: 30000,
+        //  <<< ⚠️ تم حذف bufferMaxEntries: 0
+        //  <<< ⚠️ تم حذف bufferCommands: false
+        // Connection retry settings
+        retryWrites: true,
+        retryReads: true,
+        readPreference: 'secondaryPreferred', // Better read performance
+        compressors: 'zlib', // Enable compression
       });
       console.log('✅ Connected to MongoDB successfully');
       
@@ -168,6 +202,7 @@ const connectDB = async () => {
     process.exit(1);
   }
 };
+
 
 // دالة إنشاء حساب الذكاء الصناعي الطبي المحسنة
 async function createAIUserAccount() {
@@ -234,10 +269,10 @@ async function createAIUserAccount() {
 }
 
 // Initialize HTTP Server
-const PORT = process.env.PORT || 3001;
+const PORT = process.env.PORT || 5000;
 const httpServer = createServer();
 
-// Initialize Socket.IO with optimized settings
+// Initialize Socket.IO with performance optimized settings
 const io = new Server(httpServer, {
   cors: {
     origin: '*',
@@ -245,20 +280,42 @@ const io = new Server(httpServer, {
     credentials: true,
   },
   transports: ['websocket', 'polling'],
-  pingTimeout: 60000,
-  pingInterval: 25000,
-  maxHttpBufferSize: 1e6, // 1MB
+  pingTimeout: 20000,
+  pingInterval: 15000,
+  maxHttpBufferSize: 5e6, // 5MB for better file handling
   allowEIO3: true,
   connectionStateRecovery: {
     maxDisconnectionDuration: 2 * 60 * 1000,
     skipMiddlewares: true,
   },
+  compression: true, // Enable compression for better performance
+  perMessageDeflate: {
+    threshold: 1024, // Compress messages larger than 1KB
+  },
+  // Enhanced performance settings
+  httpCompression: {
+    threshold: 1024,
+    chunkSize: 1024,
+    windowBits: 13,
+    concurrency: 10,
+  },
 });
 
-// Global state
+// Global state with performance optimizations
 let typings = [];
 let onlineUsers = [];
 let activeRooms = new Map(); // لتتبع الغرف النشطة
+let messageQueue = new Map(); // Message batching queue
+let messageBuffers = new Map(); // Buffer for batch processing
+let connectionHealth = new Map(); // Track connection quality
+
+// Performance metrics
+let performanceMetrics = {
+  messagesPerSecond: 0,
+  activeConnections: 0,
+  avgResponseTime: 0,
+  lastMetricUpdate: Date.now()
+};
 
 // Utility functions
 const formatTime = (timestamp, use24Hour = false) => {
@@ -298,8 +355,59 @@ await connectDB();
 
 console.log('🚀 Socket.IO server initializing...');
 
+// Connection quality monitoring system
+const monitorConnectionQuality = (socket) => {
+  let responseTime = 0;
+  let messageCount = 0;
+  let lastPingTime = Date.now();
+  
+  // Monitor response times
+  socket.on('pong', (latency) => {
+    const currentTime = Date.now();
+    responseTime = (responseTime + latency) / 2;
+    
+    let quality = 'excellent';
+    if (latency > 100) quality = 'good';
+    if (latency > 300) quality = 'fair';
+    if (latency > 500) quality = 'poor';
+    if (latency > 1000) quality = 'slow';
+    
+    connectionHealth.set(socket.id, quality);
+    
+    // Auto-adjust settings based on connection quality
+    if (quality === 'poor' || quality === 'slow') {
+      socket.emit('connection:quality', { 
+        status: quality,
+        suggestion: 'switching_to_optimized_mode',
+        compression: true
+      });
+    }
+  });
+  
+  // Send periodic ping to measure latency
+  const pingInterval = setInterval(() => {
+    const pingTime = Date.now();
+    socket.emit('ping', pingTime);
+    lastPingTime = pingTime;
+  }, 10000); // Every 10 seconds
+  
+  socket.on('disconnect', () => {
+    clearInterval(pingInterval);
+    connectionHealth.delete(socket.id);
+  });
+};
+
 io.on('connection', (socket) => {
   console.log('✅ Client connected:', socket.id);
+  
+  // Initialize connection monitoring
+  monitorConnectionQuality(socket);
+  
+  // Update performance metrics
+  performanceMetrics.activeConnections++;
+  
+  // Send initial connection quality check
+  socket.emit('ping', Date.now());
 
   // ==========================================
   // 🔥 User Data Management
@@ -418,9 +526,37 @@ io.on('connection', (socket) => {
   });
 
   // ==========================================
-  // 🔥 Enhanced Message Handling
+  // 🔥 Performance Optimized Message Handling
   // ==========================================
-  socket.on('newMessage', async (data, callback) => {
+  
+  // Message batching for better performance
+  const processBatchedMessages = async (roomID) => {
+    const batch = messageBuffers.get(roomID);
+    if (!batch || batch.length === 0) return;
+    
+    try {
+      // Process multiple messages at once
+      const results = await Promise.allSettled(
+        batch.map(async ({ data, callback }) => {
+          return await processMessage(data, callback);
+        })
+      );
+      
+      // Clear processed batch
+      messageBuffers.delete(roomID);
+      
+      // Update performance metrics
+      performanceMetrics.messagesPerSecond += batch.length;
+      
+    } catch (error) {
+      console.error('❌ Error processing message batch:', error);
+    }
+  };
+  
+  // Enhanced message processing
+  const processMessage = async (data, callback) => {
+    const startTime = Date.now();
+    
     try {
       const { roomID, sender, message, replayData, voiceData = null, tempId, fileData = null } = data;
       
@@ -432,16 +568,13 @@ io.on('connection', (socket) => {
       }
       
       // ✅ التحقق من الحظر قبل إرسال الرسالة
-      // المنطق الصحيح: إذا المرسل حظر المستقبل → الرسالة ما توصل للمستقبل
       const room = await Room.findById(roomID).populate('participants', 'blockedUsers _id');
       if (room && room.type === 'private') {
-        // الحصول على المرسل والمستقبل
         const senderUser = await User.findById(sender).select('blockedUsers');
         const otherParticipant = room.participants.find(
           (p) => p && p._id && p._id.toString() !== sender.toString()
         );
         
-        // التحقق: هل المرسل حاظر المستقبل؟
         if (senderUser && senderUser.blockedUsers && Array.isArray(senderUser.blockedUsers) && otherParticipant) {
           const hasBlockedReceiver = senderUser.blockedUsers.some(
             (blockedId) => blockedId && blockedId.toString() === otherParticipant._id.toString()
@@ -449,7 +582,6 @@ io.on('connection', (socket) => {
           
           if (hasBlockedReceiver) {
             console.log(`🚫 Message blocked: Sender ${sender} has blocked ${otherParticipant._id}`);
-            // ✅ نرسل نجاح وهمي للمرسل
             if (callback) callback({ success: true, _id: 'blocked_' + Date.now() });
             return;
           }
@@ -471,7 +603,6 @@ io.on('connection', (socket) => {
       let newMsg = await Message.findOne({ tempId }).lean();
 
       if (newMsg) {
-        // Message already exists
         const populatedMsg = await Message.findById(newMsg._id)
           .populate('sender', 'name lastName username avatar _id')
           .lean();
@@ -487,7 +618,6 @@ io.on('connection', (socket) => {
         
         if (callback) callback({ success: true, _id: newMsg._id });
       } else {
-        // Create new message
         newMsg = await Message.create(msgData);
         const populatedMsg = await Message.findById(newMsg._id)
           .populate('sender', 'name lastName username avatar _id')
@@ -502,7 +632,6 @@ io.on('connection', (socket) => {
         io.to(roomID).emit('lastMsgUpdate', populatedMsg);
         io.to(roomID).emit('updateLastMsgData', { msgData: populatedMsg, roomID });
 
-        // Handle reply
         if (replayData) {
           await Message.findOneAndUpdate(
             { _id: replayData.targetID },
@@ -520,7 +649,6 @@ io.on('connection', (socket) => {
         // معالجة AI التلقائية مع دعم الصور والملفات
         const isRoomWithAI = await isAIRoom(Room, User, roomID);
         if (isRoomWithAI && (message || fileData)) {
-          // انتظار ثانية واحدة ثم الرد
           setTimeout(async () => {
             await handleAIMessage({
               Message,
@@ -537,9 +665,43 @@ io.on('connection', (socket) => {
 
         if (callback) callback({ success: true, _id: newMsg._id });
       }
+      
+      // Update performance metrics
+      const responseTime = Date.now() - startTime;
+      performanceMetrics.avgResponseTime = 
+        (performanceMetrics.avgResponseTime + responseTime) / 2;
+        
     } catch (messageError) {
-      console.error('❌ Error in newMessage:', messageError);
+      console.error('❌ Error in processMessage:', messageError);
       if (callback) callback({ success: false, error: 'Failed to send message' });
+    }
+  };
+  
+  socket.on('newMessage', async (data, callback) => {
+    const { roomID } = data;
+    
+    // Check connection quality and decide batching strategy
+    const connectionQuality = connectionHealth.get(socket.id) || 'good';
+    
+    if (connectionQuality === 'poor' || connectionQuality === 'slow') {
+      // Use message batching for poor connections
+      if (!messageBuffers.has(roomID)) {
+        messageBuffers.set(roomID, []);
+      }
+      
+      messageBuffers.get(roomID).push({ data, callback });
+      
+      // Process batch when it reaches 5 messages or after 2 seconds
+      const batch = messageBuffers.get(roomID);
+      if (batch.length >= 5) {
+        await processBatchedMessages(roomID);
+      } else {
+        // Set timeout for batch processing
+        setTimeout(() => processBatchedMessages(roomID), 2000);
+      }
+    } else {
+      // Process message immediately for good connections
+      await processMessage(data, callback);
     }
   });
 
@@ -814,13 +976,21 @@ io.on('connection', (socket) => {
   });
 
   // ==========================================
-  // 🔥 Get Rooms with Enhanced Performance
+  // 🔥 Get Rooms with Enhanced Performance & Pagination
   // ==========================================
-  socket.on('getRooms', async (userID) => {
+  socket.on('getRooms', async (userID, options = {}) => {
     try {
+      const { page = 1, limit = 50, sortBy = 'updatedAt', order = -1 } = options;
+      const skip = (page - 1) * limit;
+      
+      // Optimized query with pagination and sorting
       const userRooms = await Room.find({
         participants: { $in: userID },
-      }).lean();
+      })
+      .sort({ [sortBy]: order })
+      .skip(skip)
+      .limit(limit)
+      .lean();
 
       const userPvs = await Room.find({
         $and: [{ participants: { $in: userID } }, { type: 'private' }],
@@ -859,28 +1029,50 @@ io.on('connection', (socket) => {
       io.to([...socket.rooms]).emit('updateOnlineUsers', filteredOnlineUsers);
 
       const getRoomsData = async () => {
-        const promises = userRooms.map(async (room) => {
-          const lastMsgData = room?.messages?.length
-            ? await Message.findOne({ _id: room.messages.at(-1)?._id })
-                .populate('sender', 'name lastName username avatar _id')
-            : null;
+        // Optimized parallel processing with connection quality consideration
+        const connectionQuality = connectionHealth.get(socket.id) || 'good';
+        const batchSize = connectionQuality === 'poor' ? 5 : connectionQuality === 'slow' ? 10 : 20;
+        
+        const batches = [];
+        for (let i = 0; i < userRooms.length; i += batchSize) {
+          batches.push(userRooms.slice(i, i + batchSize));
+        }
+        
+        const results = [];
+        
+        for (const batch of batches) {
+          const batchPromises = batch.map(async (room) => {
+            // Get last message more efficiently
+            const [lastMsgData, notSeenCount] = await Promise.all([
+              room?.messages?.length
+                ? Message.findById(room.messages.at(-1))
+                    .populate('sender', 'name lastName username avatar _id')
+                    .lean()
+                : null,
+              Message.countDocuments({
+                roomID: room?._id,
+                sender: { $ne: userID },
+                seen: { $nin: [userID] },
+              })
+            ]);
 
-          const notSeenCount = await Message.find({
-            $and: [
-              { roomID: room?._id },
-              { sender: { $ne: userID } },
-              { seen: { $nin: [userID] } },
-            ],
+            return {
+              ...room,
+              lastMsgData,
+              notSeenCount,
+            };
           });
-
-          return {
-            ...room,
-            lastMsgData,
-            notSeenCount: notSeenCount?.length,
-          };
-        });
-
-        return Promise.all(promises);
+          
+          const batchResults = await Promise.all(batchPromises);
+          results.push(...batchResults);
+          
+          // Add small delay for poor connections to prevent overwhelming
+          if (connectionQuality === 'poor' || connectionQuality === 'slow') {
+            await new Promise(resolve => setTimeout(resolve, 100));
+          }
+        }
+        
+        return results;
       };
 
       const rooms = await getRoomsData();
@@ -1771,26 +1963,49 @@ io.on('connection', (socket) => {
     
     const disconnectedUser = findUserSocket(socket.id, true);
     
-    // ✅ إزالة من قائمة المستخدمين المتصلين (لكن ليس AI)
-    onlineUsers = onlineUsers.filter((data) => {
-      // الحفاظ على اتصال AI الدائم
-      if (data.isPermanent) {
-        return true;
+    // Enhanced cleanup process
+    try {
+      // ✅ إزالة من قائمة المستخدمين المتصلين (لكن ليس AI)
+      onlineUsers = onlineUsers.filter((data) => {
+        // الحفاظ على اتصال AI الدائم
+        if (data.isPermanent) {
+          return true;
+        }
+        return data.socketID !== socket.id;
+      });
+      
+      // Clean up active rooms
+      activeRooms.forEach((roomSockets, roomId) => {
+        roomSockets.delete(socket.id);
+        if (roomSockets.size === 0) {
+          activeRooms.delete(roomId);
+        }
+      });
+      
+      // Clean up message queues and buffers
+      messageQueue.delete(socket.id);
+      messageBuffers.forEach((buffer, roomId) => {
+        // Remove messages from this socket
+        const filteredBuffer = buffer.filter(item => item.socketId !== socket.id);
+        if (filteredBuffer.length > 0) {
+          messageBuffers.set(roomId, filteredBuffer);
+        } else {
+          messageBuffers.delete(roomId);
+        }
+      });
+      
+      // Clean up connection health tracking
+      connectionHealth.delete(socket.id);
+      
+      // Update performance metrics
+      performanceMetrics.activeConnections = Math.max(0, performanceMetrics.activeConnections - 1);
+      
+      if (disconnectedUser) {
+        await updateUserOnlineStatus(disconnectedUser.userID, 'offline');
+        console.log(`👋 User ${disconnectedUser.userID} went offline`);
       }
-      return data.socketID !== socket.id;
-    });
-    
-    // إزالة من الغرف النشطة
-    activeRooms.forEach((roomSockets, roomId) => {
-      roomSockets.delete(socket.id);
-      if (roomSockets.size === 0) {
-        activeRooms.delete(roomId);
-      }
-    });
-    
-    if (disconnectedUser) {
-      await updateUserOnlineStatus(disconnectedUser.userID, 'offline');
-      console.log(`👋 User ${disconnectedUser.userID} went offline`);
+    } catch (error) {
+      console.error('❌ Error during disconnect cleanup:', error);
     }
     
     // ✅ تحديث المستخدمين المتصلين مع تصفية المحظورين لكل مستخدم
@@ -1832,6 +2047,48 @@ io.on('connection', (socket) => {
   });
 });
 
+// Performance monitoring and statistics
+const startPerformanceMonitoring = () => {
+  setInterval(() => {
+    const now = Date.now();
+    const timeDiff = (now - performanceMetrics.lastMetricUpdate) / 1000;
+    
+    console.log('📊 Performance Metrics:');
+    console.log(`   Active Connections: ${performanceMetrics.activeConnections}`);
+    console.log(`   Messages/sec: ${(performanceMetrics.messagesPerSecond / timeDiff).toFixed(2)}`);
+    console.log(`   Avg Response Time: ${performanceMetrics.avgResponseTime.toFixed(0)}ms`);
+    console.log(`   Memory Usage: ${(process.memoryUsage().heapUsed / 1024 / 1024).toFixed(2)} MB`);
+    
+    // Reset counters
+    performanceMetrics.messagesPerSecond = 0;
+    performanceMetrics.lastMetricUpdate = now;
+    
+    // Garbage collection suggestion for high memory usage
+    const memUsage = process.memoryUsage().heapUsed / 1024 / 1024;
+    if (memUsage > 200 && global.gc) {
+      console.log('🗑️ Running garbage collection...');
+      global.gc();
+    }
+  }, 30000); // Every 30 seconds
+};
+
+// Auto-scaling message buffer sizes based on load
+const adjustBufferSizes = () => {
+  setInterval(() => {
+    const connectionCount = performanceMetrics.activeConnections;
+    
+    if (connectionCount > 100) {
+      // High load: increase buffer sizes
+      messageBuffers.forEach((buffer, roomId) => {
+        if (buffer.length > 20) {
+          // Force process large buffers
+          setTimeout(() => processBatchedMessages(roomId), 100);
+        }
+      });
+    }
+  }, 10000); // Every 10 seconds
+};
+
 // Start server
 httpServer.listen(PORT, () => {
   console.log(`🚀 Enhanced Socket.IO server is running on port ${PORT}`);
@@ -1839,6 +2096,11 @@ httpServer.listen(PORT, () => {
   console.log(`⚡ Performance optimizations enabled`);
   console.log(`🔥 All features from routes server integrated`);
   console.log(`📞 Call system with history enabled`);
+  console.log(`📊 Performance monitoring started`);
+  
+  // Start monitoring systems
+  startPerformanceMonitoring();
+  adjustBufferSizes();
 });
 
 // Enhanced error handling

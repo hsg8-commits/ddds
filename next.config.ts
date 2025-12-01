@@ -1,5 +1,4 @@
 import type { NextConfig } from "next";
-import type { Configuration } from "webpack";
 
 const nextConfig: NextConfig = {
   reactStrictMode: false,
@@ -12,11 +11,11 @@ const nextConfig: NextConfig = {
   compress: true,
 
   experimental: {
-    optimizeCss: false,          // إيقاف الميزة التي تسبب خطأ critters
+    optimizeCss: false,
     optimizeServerReact: true,
   },
 
-  webpack: (config: Configuration) => {
+  webpack: (config: any) => {
     if (config.optimization) {
       config.optimization.usedExports = true;
 

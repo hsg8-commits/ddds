@@ -401,16 +401,11 @@ const useConnection = ({
         reconnectionDelay: 1000,
         reconnectionDelayMax: 5000,
         timeout: 20000,
-        transports: ["websocket", "polling"], // Add polling as fallback
-        upgrade: true, // Allow upgrade from polling to websocket
-        // Enhanced performance settings
+        transports: ["websocket", "polling"],
+        upgrade: true,
         forceNew: false,
         multiplex: true,
-        // Connection quality optimization
         rememberUpgrade: true,
-        // Enhanced timeouts for poor connections
-        pingTimeout: 60000,
-        pingInterval: 25000,
       });
       socketRef.current = newSocket;
       setupSocketListeners();

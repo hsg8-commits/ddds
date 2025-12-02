@@ -1116,12 +1116,12 @@ io.on('connection', (socket) => {
       if (roomData && roomData?.type === 'private') {
         await roomData.populate('participants');
         
-        // ✅ إخفاء بيانات الحاظر من المحظور
-        // المنطق الصحيح: إذا أنا محظور من شخص → ما أشوف بياناته
+        // ✅ إخفاء بيانات الحاظر عن المحظور (المنطق الصحيح كما في تليجرام)
+        // المنطق الصحيح: إذا أنا (currentUser) محظور من شخص (participant) → ما أشوف بياناته (صورته، حالته)
         if (currentUserID && roomData.participants && Array.isArray(roomData.participants)) {
           roomData.participants = roomData.participants.map(participant => {
             if (participant && participant._id) {
-              // التحقق: هل هذا المشارك حاظرني؟
+              // التحقق: هل هذا المشارك (الحاظر) حاظرني (المحظور)؟
               const participantBlockedUsers = participant.blockedUsers || [];
               const amIBlocked = participantBlockedUsers.some(
                 (blockedId) => blockedId && blockedId.toString() === currentUserID.toString()
@@ -1131,9 +1131,9 @@ io.on('connection', (socket) => {
                 // أنا محظور من هذا المشارك → أخفي بياناته عني
                 return {
                   ...participant.toObject(),
-                  avatar: null, // إخفاء الصورة
+                  avatar: null, // إخفاء الصورة ← المحظور لا يرى صورة الحاظر
                   biography: '', // إخفاء السيرة الذاتية
-                  status: 'offline' // إظهار أنه غير متصل
+                  status: 'offline' // إظهار أنه غير متصل دائماً
                 };
               }
             }

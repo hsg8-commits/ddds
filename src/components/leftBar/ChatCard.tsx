@@ -72,10 +72,11 @@ const ChatCard = ({
       ) as User | undefined;
 
       if (participant) {
+        // ✅ الصورة تأتي من السيرفر محدثة (null إذا كنت محظور)
         return {
           name: participant.name,
           lastName: participant?.lastName,
-          avatar: participant.avatar, // الصورة تأتي من السيرفر محدثة
+          avatar: participant.avatar, // null = محظور، undefined/string = طبيعي
           _id: participant._id,
         };
       }
@@ -92,10 +93,14 @@ const ChatCard = ({
     return { name: roomName, avatar: roomAvatar, _id };
   }, [_id, myID, participants, roomAvatar, roomName, type]);
 
-  const isOnline = useMemo(
-    () => onlineUsers.some((user) => user.userID === roomID),
-    [onlineUsers, roomID]
-  );
+  const isOnline = useMemo(() => {
+    // ✅ إخفاء حالة الاتصال إذا كنت محظور (avatar = null)
+    // المنطق: إذا الصورة بالضبط null → معناها أنا محظور → لا تعرض "متصل"
+    if (type === "private" && avatar === null) {
+      return false; // دائماً غير متصل للمحظور
+    }
+    return onlineUsers.some((user) => user.userID === roomID);
+  }, [onlineUsers, roomID, avatar, type]);
 
   const latestMessageTime =
     formatDate(lastMsgData?.createdAt) || formatDate(createdAt);

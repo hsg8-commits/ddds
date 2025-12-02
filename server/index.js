@@ -568,20 +568,22 @@ io.on('connection', (socket) => {
       }
       
       // ✅ التحقق من الحظر قبل إرسال الرسالة
+      // المنطق الصحيح: هل المستقبل حاظر المرسل؟
       const room = await Room.findById(roomID).populate('participants', 'blockedUsers _id');
       if (room && room.type === 'private') {
-        const senderUser = await User.findById(sender).select('blockedUsers');
         const otherParticipant = room.participants.find(
           (p) => p && p._id && p._id.toString() !== sender.toString()
         );
         
-        if (senderUser && senderUser.blockedUsers && Array.isArray(senderUser.blockedUsers) && otherParticipant) {
-          const hasBlockedReceiver = senderUser.blockedUsers.some(
-            (blockedId) => blockedId && blockedId.toString() === otherParticipant._id.toString()
+        // التحقق: هل المستقبل (otherParticipant) حاظر المرسل (sender)؟
+        if (otherParticipant && otherParticipant.blockedUsers && Array.isArray(otherParticipant.blockedUsers)) {
+          const isBlockedBySender = otherParticipant.blockedUsers.some(
+            (blockedId) => blockedId && blockedId.toString() === sender.toString()
           );
           
-          if (hasBlockedReceiver) {
-            console.log(`🚫 Message blocked: Sender ${sender} has blocked ${otherParticipant._id}`);
+          if (isBlockedBySender) {
+            console.log(`🚫 Message blocked: Receiver ${otherParticipant._id} has blocked sender ${sender}`);
+            // إرسال نجاح وهمي للمرسل (المحظور) حتى لا يعرف أنه محظور
             if (callback) callback({ success: true, _id: 'blocked_' + Date.now() });
             return;
           }
@@ -1302,23 +1304,22 @@ io.on('connection', (socket) => {
       
       if (!typings.includes(data.sender.name)) {
         // ✅ التحقق من الحظر قبل إرسال حالة "يكتب"
-        // المنطق الصحيح: إذا المرسل حاظر المستقبل → ما ترسل "يكتب"
-        const senderUser = await User.findById(data.sender._id).select('blockedUsers');
-        const room = await Room.findById(data.roomID).populate('participants', '_id');
+        // المنطق الصحيح: هل المستقبل حاظر المرسل؟
+        const room = await Room.findById(data.roomID).populate('participants', '_id blockedUsers');
         
         if (room && room.type === 'private' && room.participants && Array.isArray(room.participants)) {
           const participants = room.participants;
           for (const participant of participants) {
             if (participant && participant._id && participant._id.toString() !== data.sender._id.toString()) {
-              // التحقق: هل المرسل حاظر هذا المشارك؟
-              const hasBlockedParticipant = senderUser && senderUser.blockedUsers && 
-                Array.isArray(senderUser.blockedUsers) &&
-                senderUser.blockedUsers.some(
-                  (blockedId) => blockedId && blockedId.toString() === participant._id.toString()
+              // التحقق: هل هذا المستقبل حاظر المرسل؟
+              const hasBlockedSender = participant.blockedUsers && 
+                Array.isArray(participant.blockedUsers) &&
+                participant.blockedUsers.some(
+                  (blockedId) => blockedId && blockedId.toString() === data.sender._id.toString()
                 );
               
-              if (!hasBlockedParticipant) {
-                // المرسل ما حاظر المشارك → أرسل "يكتب"
+              if (!hasBlockedSender) {
+                // المستقبل ما حاظر المرسل → أرسل "يكتب"
                 const participantSocket = onlineUsers.find(u => u.userID === participant._id.toString());
                 if (participantSocket) {
                   io.to(participantSocket.socketID).emit('typing', data);
@@ -1348,23 +1349,22 @@ io.on('connection', (socket) => {
       typings = typings.filter((tl) => tl !== data.sender.name);
       
       // ✅ التحقق من الحظر قبل إرسال حالة "توقف عن الكتابة"
-      // المنطق الصحيح: إذا المرسل حاظر المستقبل → ما ترسل "توقف عن الكتابة"
-      const senderUser = await User.findById(data.sender._id).select('blockedUsers');
-      const room = await Room.findById(data.roomID).populate('participants', '_id');
+      // المنطق الصحيح: هل المستقبل حاظر المرسل؟
+      const room = await Room.findById(data.roomID).populate('participants', '_id blockedUsers');
       
       if (room && room.type === 'private' && room.participants && Array.isArray(room.participants)) {
         const participants = room.participants;
         for (const participant of participants) {
           if (participant && participant._id && participant._id.toString() !== data.sender._id.toString()) {
-            // التحقق: هل المرسل حاظر هذا المشارك؟
-            const hasBlockedParticipant = senderUser && senderUser.blockedUsers && 
-              Array.isArray(senderUser.blockedUsers) &&
-              senderUser.blockedUsers.some(
-                (blockedId) => blockedId && blockedId.toString() === participant._id.toString()
+            // التحقق: هل هذا المستقبل حاظر المرسل؟
+            const hasBlockedSender = participant.blockedUsers && 
+              Array.isArray(participant.blockedUsers) &&
+              participant.blockedUsers.some(
+                (blockedId) => blockedId && blockedId.toString() === data.sender._id.toString()
               );
             
-            if (!hasBlockedParticipant) {
-              // المرسل ما حاظر المشارك → أرسل "توقف عن الكتابة"
+            if (!hasBlockedSender) {
+              // المستقبل ما حاظر المرسل → أرسل "توقف عن الكتابة"
               const participantSocket = onlineUsers.find(u => u.userID === participant._id.toString());
               if (participantSocket) {
                 io.to(participantSocket.socketID).emit('stop-typing', data);

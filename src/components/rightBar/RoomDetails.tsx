@@ -223,8 +223,8 @@ const RoomDetails = ({ selectedRoomData, myData, roomData }: RoomDetailsProps) =
 
             <div className="text-sm text-darkGray font-vazirBold line-clamp-1 whitespace-normal text-nowrap">
               {type === "private" ? (
-                !avatar || avatar === null ? (
-                  // إذا الصورة مخفية (null) → معناها أنا محظور
+                avatar === null ? (
+                  // ✅ إذا الصورة بالضبط null (وليس "" أو undefined) → معناها أنا محظور
                   "آخر ظهور منذ زمن طويل"
                 ) : isUserOnline(_id) ? (
                   <span className="text-lightBlue">متصل</span>

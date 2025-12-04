@@ -353,23 +353,6 @@ const useConnection = ({
         </span>
       );
     });
-    
-    // Connection quality monitoring
-    socket.on('ping', (timestamp) => {
-      // Respond to server ping for latency measurement
-      socket.emit('pong', Date.now() - timestamp);
-    });
-    
-    socket.on('connection:quality', (qualityInfo) => {
-      console.log('📊 Connection quality:', qualityInfo.status);
-      
-      // Adjust client behavior based on connection quality
-      if (qualityInfo.status === 'poor' || qualityInfo.status === 'slow') {
-        // Enable message queuing for poor connections
-        console.log('🔄 Switching to optimized mode for poor connection');
-        // You can implement local message queuing here
-      }
-    });
 
     return () => {
       [
@@ -386,8 +369,6 @@ const useConnection = ({
         "deleteRoom",
         "seenMsg",
         "updateRoomData",
-        "ping",
-        "connection:quality",
       ].forEach((event) => socket.off(event));
     };
   }, [selectedRoom, setter, userDataUpdater, userId]);
@@ -401,11 +382,7 @@ const useConnection = ({
         reconnectionDelay: 1000,
         reconnectionDelayMax: 5000,
         timeout: 20000,
-        transports: ["websocket", "polling"],
-        upgrade: true,
-        forceNew: false,
-        multiplex: true,
-        rememberUpgrade: true,
+        transports: ["websocket"],
       });
       socketRef.current = newSocket;
       setupSocketListeners();

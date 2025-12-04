@@ -42,6 +42,143 @@ const useConnection = ({
     </span>
   );
 
+  // تجميع تحديثات الواجهة لتحسين الأداء
+  const batchUpdateRef = useRef<{
+    timeout: NodeJS.Timeout | null;
+    updates: Array<() => void>;
+  }>({ timeout: null, updates: [] });
+
+  const batchUpdate = useCallback((updateFn: () => void) => {
+    batchUpdateRef.current.updates.push(updateFn);
+    
+    if (batchUpdateRef.current.timeout) {
+      clearTimeout(batchUpdateRef.current.timeout);
+    }
+    
+    batchUpdateRef.current.timeout = setTimeout(() => {
+      const updates = [...batchUpdateRef.current.updates];
+      batchUpdateRef.current.updates = [];
+      
+      // تنفيذ جميع التحديثات دفعة واحدة
+      updates.forEach(update => update());
+      batchUpdateRef.current.timeout = null;
+    }, 16); // 16ms ≈ 60fps
+  }, []);
+
+  // تحسين معالجة الرسائل المعلقة مع المعالجة المتوازية
+  const retryPendingMessagesOptimized = useCallback(async (roomData: Room) => {
+    const pendingMessages = pendingMessagesService.getPendingMessages(roomData._id);
+    const pendingOnly = pendingMessages.filter(msg => msg.status === "pending");
+    
+    if (pendingOnly.length === 0) return;
+
+    // معالجة الرسائل بشكل متوازي (الحد الأقصى 3 رسائل في نفس الوقت)
+    const CONCURRENT_LIMIT = 3;
+    const chunks = [];
+    
+    for (let i = 0; i < pendingOnly.length; i += CONCURRENT_LIMIT) {
+      chunks.push(pendingOnly.slice(i, i + CONCURRENT_LIMIT));
+    }
+
+    for (const chunk of chunks) {
+      const promises = chunk.map(async (msg) => {
+        try {
+          let preparedVoiceData = msg.voiceData || null;
+          
+          // تحضير بيانات الصوت إذا لزم الأمر
+          if (preparedVoiceData && (!preparedVoiceData.src || !preparedVoiceData.src.trim())) {
+            const blob = await voiceBlobStorage.getBlob(msg.tempId || msg._id);
+            if (!blob) return null;
+            
+            const file = new File([blob], `voice-retry-${Date.now()}.ogg`, {
+              type: "audio/ogg",
+            });
+
+            const uploadRes = await uploadFileWithRetry(file, (progress) => {
+              batchUpdate(() => {
+                setter((prev): Partial<GlobalStoreProps> => ({
+                  ...prev,
+                  selectedRoom: prev.selectedRoom
+                    ? {
+                        ...prev.selectedRoom,
+                        messages: prev.selectedRoom.messages.map((m) =>
+                          m._id === msg._id ? { ...m, uploadProgress: progress } : m
+                        ),
+                      }
+                    : prev.selectedRoom,
+                }));
+              });
+            });
+
+            if (!uploadRes.success || !uploadRes.downloadUrl) {
+              return null;
+            }
+
+            preparedVoiceData = {
+              ...preparedVoiceData,
+              src: uploadRes.downloadUrl,
+            };
+          }
+
+          const payload = {
+            roomID: roomData._id,
+            message: msg.message,
+            sender: msg.sender,
+            replayData: msg.replayedTo
+              ? { targetID: msg.replayedTo.msgID, replayedTo: msg.replayedTo }
+              : null,
+            tempId: msg._id,
+          };
+          
+          if (preparedVoiceData) {
+            Object.assign(payload, { voiceData: preparedVoiceData });
+          }
+
+          return new Promise<void>((resolve) => {
+            socketRef.current?.emit(
+              "newMessage",
+              payload,
+              (response: { success: boolean; _id: string }) => {
+                if (response.success) {
+                  batchUpdate(() => {
+                    setter((prev): Partial<GlobalStoreProps> => ({
+                      ...prev,
+                      selectedRoom: prev.selectedRoom
+                        ? {
+                            ...prev.selectedRoom,
+                            messages: prev.selectedRoom.messages.map((m) =>
+                              m._id === msg._id
+                                ? {
+                                    ...m,
+                                    _id: response._id,
+                                    status: "sent",
+                                    uploadProgress: undefined,
+                                  }
+                                : m
+                            ),
+                          }
+                        : prev.selectedRoom,
+                    }));
+                  });
+                  
+                  pendingMessagesService.removePendingMessage(roomData._id, msg._id);
+                  voiceBlobStorage.deleteBlob(msg.tempId || msg._id).catch(() => {});
+                }
+                resolve();
+              }
+            );
+          });
+        } catch (error) {
+          console.warn("Failed to retry message:", error);
+          return null;
+        }
+      });
+
+      // انتظار المجموعة الحالية قبل المتابعة للمجموعة التالية
+      await Promise.allSettled(promises);
+    }
+  }, [setter, batchUpdate]);
+
   const setupSocketListeners = useCallback(() => {
     const socket = socketRef.current;
     if (!socket) return;
@@ -49,7 +186,6 @@ const useConnection = ({
     let listenersRemaining = 2;
     const handleListenerUpdate = () => {
       listenersRemaining -= 1;
-      // console.log(`Event ${event} completed. Remaining: ${listenersRemaining}`);
       if (listenersRemaining === 0) {
         setStatus("Telegram");
       }
@@ -66,189 +202,22 @@ const useConnection = ({
 
     socket.on("joining", (roomData) => {
       if (roomData) {
-        setter(() => {
-          // Load pending messages from localStorage
-          const pendingMessages = pendingMessagesService.getPendingMessages(
-            roomData._id
-          );
-          const serverMessages = roomData.messages || [];
+        const pendingMessages = pendingMessagesService.getPendingMessages(roomData._id);
+        const serverMessages = roomData.messages || [];
+        
+        // دمج الرسائل وترتيبها
+        const allMessages = [...serverMessages, ...pendingMessages]
+          .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
 
-          // Merge server messages with pending messages
-          const allMessages = [...serverMessages, ...pendingMessages];
+        setter(() => ({
+          selectedRoom: {
+            ...roomData,
+            messages: allMessages,
+          },
+        }));
 
-          // Sort by createdAt to maintain order
-          allMessages.sort(
-            (a, b) =>
-              new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
-          );
-
-          return {
-            selectedRoom: {
-              ...roomData,
-              messages: allMessages,
-            },
-          };
-        });
-
-        // Retry pending messages for this room when user enters
-        const retryPendingMessagesForRoom = async () => {
-          const pendingMessages = pendingMessagesService.getPendingMessages(
-            roomData._id
-          );
-
-          // Filter only pending messages that haven't been processed
-          const pendingOnly = pendingMessages.filter(
-            (msg) => msg.status === "pending"
-          );
-
-          for (const msg of pendingOnly) {
-            // Prepare voice data: if src is missing, try to upload from IndexedDB first
-            let preparedVoiceData = msg.voiceData || null;
-            if (
-              preparedVoiceData &&
-              (!preparedVoiceData.src || !preparedVoiceData.src.trim())
-            ) {
-              try {
-                const blob = await voiceBlobStorage.getBlob(
-                  msg.tempId || msg._id
-                );
-                if (!blob) {
-                  // No blob to upload; skip emitting, keep pending
-                  continue;
-                }
-                const file = new File([blob], `voice-retry-${Date.now()}.ogg`, {
-                  type: "audio/ogg",
-                });
-
-                const uploadRes = await uploadFileWithRetry(
-                  file,
-                  (progress) => {
-                    // Update progress in UI for this pending message
-                    setter(
-                      (prev): Partial<GlobalStoreProps> => ({
-                        ...prev,
-                        selectedRoom: prev.selectedRoom
-                          ? {
-                              ...prev.selectedRoom,
-                              messages: prev.selectedRoom.messages.map((m) =>
-                                m._id === msg._id
-                                  ? { ...m, uploadProgress: progress }
-                                  : m
-                              ),
-                            }
-                          : prev.selectedRoom,
-                      })
-                    );
-                  }
-                );
-
-                if (!uploadRes.success || !uploadRes.downloadUrl) {
-                  // Upload failed; keep message pending and try later
-                  continue;
-                }
-
-                preparedVoiceData = {
-                  ...preparedVoiceData,
-                  src: uploadRes.downloadUrl,
-                };
-
-                // Update UI and pending storage with new src and complete progress
-                setter(
-                  (prev): Partial<GlobalStoreProps> => ({
-                    ...prev,
-                    selectedRoom: prev.selectedRoom
-                      ? {
-                          ...prev.selectedRoom,
-                          messages: prev.selectedRoom.messages.map((m) =>
-                            m._id === msg._id
-                              ? {
-                                  ...m,
-                                  voiceData: preparedVoiceData,
-                                  uploadProgress: 100,
-                                }
-                              : m
-                          ),
-                        }
-                      : prev.selectedRoom,
-                  })
-                );
-                const list = pendingMessagesService.getPendingMessages(
-                  roomData._id
-                );
-                pendingMessagesService.savePendingMessages(
-                  roomData._id,
-                  list.map((m) =>
-                    m._id === msg._id
-                      ? { ...m, voiceData: preparedVoiceData }
-                      : m
-                  )
-                );
-              } catch {
-                // Any error in uploading, skip this message for now
-                continue;
-              }
-            }
-
-            const payload = {
-              roomID: roomData._id,
-              message: msg.message,
-              sender: msg.sender,
-              replayData: msg.replayedTo
-                ? { targetID: msg.replayedTo.msgID, replayedTo: msg.replayedTo }
-                : null,
-              tempId: msg._id,
-            };
-            if (preparedVoiceData) {
-              Object.assign(payload, { voiceData: preparedVoiceData });
-            }
-
-            await new Promise<void>((resolve) => {
-              socket.emit(
-                "newMessage",
-                payload,
-                (response: { success: boolean; _id: string }) => {
-                  if (response.success) {
-                    setter(
-                      (prev): Partial<GlobalStoreProps> => ({
-                        ...prev,
-                        selectedRoom: prev.selectedRoom
-                          ? {
-                              ...prev.selectedRoom,
-                              messages: prev.selectedRoom.messages.map((m) =>
-                                m._id === msg._id
-                                  ? {
-                                      ...m,
-                                      _id: response._id,
-                                      status: "sent",
-                                      uploadProgress: undefined,
-                                    }
-                                  : m
-                              ),
-                            }
-                          : prev.selectedRoom,
-                      })
-                    );
-                    pendingMessagesService.removePendingMessage(
-                      roomData._id,
-                      msg._id
-                    );
-                    // Cleanup saved blob if any
-                    voiceBlobStorage
-                      .deleteBlob(msg.tempId || msg._id)
-                      .catch(() => {});
-                  } else {
-                    // Message remains pending, will be retried next time
-                    // No action needed
-                  }
-                  resolve();
-                }
-              );
-            });
-          }
-        };
-
-        // Retry pending messages when entering the room
-        retryPendingMessagesForRoom();
+        // إعادة محاولة الرسائل المعلقة بشكل محسّن
+        retryPendingMessagesOptimized(roomData);
       }
       handleListenerUpdate();
     });
@@ -260,40 +229,50 @@ const useConnection = ({
       handleListenerUpdate();
     });
 
+    // تحسين تحديث آخر رسالة مع التجميع
     socket.on("lastMsgUpdate", (newMsg) => {
-      setRooms((prevRooms) =>
-        prevRooms.map((roomData) =>
-          roomData._id === newMsg.roomID
-            ? { ...roomData, lastMsgData: newMsg }
-            : roomData
-        )
-      );
+      batchUpdate(() => {
+        setRooms((prevRooms) =>
+          prevRooms.map((roomData) =>
+            roomData._id === newMsg.roomID
+              ? { ...roomData, lastMsgData: newMsg }
+              : roomData
+          )
+        );
+      });
     });
 
     socket.on("createRoom", (roomData) => {
       socket.emit("getRooms", userId);
-      if (roomData.creator === userId) socket.emit("joining", roomData._id);
+      if (roomData.creator === userId) {
+        // تأخير بسيط لضمان تحديث الغرف أولاً
+        setTimeout(() => socket.emit("joining", roomData._id), 100);
+      }
     });
 
     socket.on("updateRoomData", (roomData) => {
       socket.emit("getRooms", userId);
 
-      setter((prev) => ({
-        ...prev,
-        selectedRoom:
-          prev.selectedRoom && prev.selectedRoom._id === roomData._id
-            ? {
-                ...prev.selectedRoom,
-                name: roomData.name,
-                avatar: roomData.avatar,
-                participants: roomData.participants,
-                admins: roomData.admins,
-              }
-            : prev.selectedRoom,
-      }));
+      batchUpdate(() => {
+        setter((prev) => ({
+          ...prev,
+          selectedRoom:
+            prev.selectedRoom && prev.selectedRoom._id === roomData._id
+              ? {
+                  ...prev.selectedRoom,
+                  name: roomData.name,
+                  avatar: roomData.avatar,
+                  participants: roomData.participants,
+                  admins: roomData.admins,
+                }
+              : prev.selectedRoom,
+        }));
+      });
     });
 
-    socket.on("updateOnlineUsers", (onlineUsers) => setter({ onlineUsers }));
+    socket.on("updateOnlineUsers", (onlineUsers) => {
+      batchUpdate(() => setter({ onlineUsers }));
+    });
 
     socket.on("updateLastMsgPos", (updatedData) => {
       userDataUpdater({ roomMessageTrack: updatedData });
@@ -301,77 +280,62 @@ const useConnection = ({
 
     socket.on("deleteRoom", (roomID) => {
       socket.emit("getRooms");
-      if (roomID === selectedRoom?._id) setter({ selectedRoom: null });
+      if (roomID === selectedRoom?._id) {
+        setter({ selectedRoom: null });
+      }
     });
 
     socket.on("seenMsg", ({ roomID, seenBy, readTime }) => {
-      setRooms((prevRooms) =>
-        prevRooms.map((room) => {
-          if (room._id === roomID) {
-            return {
-              ...room,
-              lastMsgData: {
-                ...room.lastMsgData!,
-                seen: [...new Set([...(room.lastMsgData?.seen || []), seenBy])],
-                readTime,
-              },
-            };
-          }
-          return room;
-        })
-      );
+      batchUpdate(() => {
+        setRooms((prevRooms) =>
+          prevRooms.map((room) => {
+            if (room._id === roomID) {
+              return {
+                ...room,
+                lastMsgData: {
+                  ...room.lastMsgData!,
+                  seen: [...new Set([...(room.lastMsgData?.seen || []), seenBy])],
+                  readTime,
+                },
+              };
+            }
+            return room;
+          })
+        );
+      });
     });
 
+    // تحسين معالجة الاتصال
     socket.on("connect", () => {
       setStatus("Telegram");
       socket.emit("getRooms", userId);
     });
 
-    socket.on("disconnect", () => {
+    // تحسين معالجة قطع الاتصال
+    const handleDisconnection = () => {
       setStatus(
         <span>
           Connecting
           <Loading loading="dots" size="xs" classNames="text-white mt-1.5" />
         </span>
       );
-    });
+    };
 
-    socket.on("connect_error", () => {
-      setStatus(
-        <span>
-          Connecting
-          <Loading loading="dots" size="xs" classNames="text-white mt-1.5" />
-        </span>
-      );
-    });
-
-    socket.on("error", () => {
-      setStatus(
-        <span>
-          Connecting
-          <Loading loading="dots" size="xs" classNames="text-white mt-1.5" />
-        </span>
-      );
-    });
+    socket.on("disconnect", handleDisconnection);
+    socket.on("connect_error", handleDisconnection);
+    socket.on("error", handleDisconnection);
 
     return () => {
-      [
-        "connect",
-        "disconnect",
-        "connect_error",
-        "error",
-        "joining",
-        "getRooms",
-        "createRoom",
-        "updateLastMsgPos",
-        "lastMsgUpdate",
-        "updateOnlineUsers",
-        "deleteRoom",
-        "seenMsg",
-        "updateRoomData",
-      ].forEach((event) => socket.off(event));
+      // تنظيف مستمعي الأحداث
+      const events = [
+        "connect", "disconnect", "connect_error", "error",
+        "joining", "getRooms", "createRoom", "updateLastMsgPos",
+        "lastMsgUpdate", "updateOnlineUsers", "deleteRoom",
+        "seenMsg", "updateRoomData"
+      ];
+      events.forEach(event => socket.off(event));
     };
-  }, [selectedRoom, setter, userDataUpdater, userId]);
+  }, [selectedRoom, setter, userDataUpdater, userId, retryPendingMessagesOptimized, batchUpdate]);
 
   const initializeSocket = useCallback(() => {
     if (!socketRef.current) {
@@ -381,9 +345,14 @@ const useConnection = ({
         reconnectionAttempts: Infinity,
         reconnectionDelay: 1000,
         reconnectionDelayMax: 5000,
-        timeout: 20000,
+        timeout: 10000, // تقليل المهلة الزمنية
         transports: ["websocket"],
+        // إضافة تحسينات جديدة
+        forceNew: true,
+        upgrade: false,
+        rememberUpgrade: false,
       });
+      
       socketRef.current = newSocket;
       setupSocketListeners();
     }
@@ -423,6 +392,11 @@ const useConnection = ({
     return () => {
       window.removeEventListener("online", handleOnline);
       window.removeEventListener("offline", handleOffline);
+      
+      // تنظيف timeout عند إلغاء المكون
+      if (batchUpdateRef.current.timeout) {
+        clearTimeout(batchUpdateRef.current.timeout);
+      }
     };
   }, [initializeSocket]);
 

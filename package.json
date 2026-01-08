@@ -4,14 +4,13 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "next dev --turbopack",
+    "dev": "next dev",
     "build": "next build",
     "start": "next start",
     "server": "node ./server",
     "lint": "next lint"
   },
   "dependencies": {
-    "@tailwindcss/postcss": "^4.0.0",
     "@types/simple-peer": "^9.11.9",
     "aos": "^2.3.4",
     "aws-sdk": "^2.1692.0",
@@ -26,9 +25,8 @@
     "jsonwebtoken": "^9.0.2",
     "mongoose": "^8.9.5",
 
-    "next": "^15.5.0",
+    "next": "^15.5.2",
 
-    "postcss": "^8.5.1",
     "react": "19.1.1",
     "react-dom": "19.1.1",
     "react-hook-form": "^7.54.2",
@@ -43,7 +41,6 @@
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3",
-    "@tailwindcss/postcss": "^4.0.0",
     "@types/aos": "^3.0.7",
     "@types/bcrypt": "^5.0.2",
     "@types/crypto-js": "^4.2.2",
@@ -55,15 +52,9 @@
     "autoprefixer": "^10.4.20",
     "daisyui": "^5.0.35",
     "eslint": "^9",
-
-    "eslint-config-next": "^15.5.0",
-
+    "eslint-config-next": "^15.5.2",
     "postcss": "^8.5.1",
     "tailwindcss": "^4.0.0",
     "typescript": "5.9.2"
-  },
-  "overrides": {
-    "@types/react": "19.1.9",
-    "@types/react-dom": "19.1.7"
   }
 }

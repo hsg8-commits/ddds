@@ -1,34 +1,99 @@
-import type { NextConfig } from "next";
+import type { NextConfig } from 'next';
 
 const nextConfig: NextConfig = {
-  reactStrictMode: false, // ضع true للإنتاج إذا أردت اكتشاف الأخطاء بدقة
+  reactStrictMode: false,
   eslint: {
-    ignoreDuringBuilds: true, // يسمح بالتجميع حتى لو كان هناك تحذيرات/أخطاء ESLint
+    ignoreDuringBuilds: true,
   },
+
+  // ─── Security Headers ─────────────────────────────────────────
+  async headers() {
+    return [
+      {
+        source: '/(.*)',
+        headers: [
+          {
+            key: 'X-DNS-Prefetch-Control',
+            value: 'on',
+          },
+          {
+            key: 'Strict-Transport-Security',
+            value: 'max-age=63072000; includeSubDomains; preload',
+          },
+          {
+            key: 'X-Frame-Options',
+            value: 'SAMEORIGIN',
+          },
+          {
+            key: 'X-Content-Type-Options',
+            value: 'nosniff',
+          },
+          {
+            key: 'Referrer-Policy',
+            value: 'origin-when-cross-origin',
+          },
+          {
+            key: 'Permissions-Policy',
+            value:
+              'camera=(), microphone=(), geolocation=(self), interest-cohort=()',
+          },
+        ],
+      },
+      {
+        // Cache static assets aggressively
+        source: '/(.*)\\.(ico|png|jpg|jpeg|gif|svg|webp|avif|woff|woff2)',
+        headers: [
+          {
+            key: 'Cache-Control',
+            value: 'public, max-age=31536000, immutable',
+          },
+        ],
+      },
+    ];
+  },
+
+  // ─── Image Optimization ──────────────────────────────────────
   images: {
     remotePatterns: [
-      // أي فرع فرعي على vercel.app
       {
-        protocol: "https",
-        hostname: "*.vercel.app",
+        protocol: 'https',
+        hostname: '*.vercel.app',
       },
-      // Liara storage
       {
-        protocol: "https",
-        hostname: "storage.c2.liara.space",
-        port: "",
-        pathname: "/tlgrm/**",
+        protocol: 'https',
+        hostname: 'storage.c2.liara.space',
+        port: '',
+        pathname: '/tlgrm/**',
       },
-      // Cloudinary (مثال على نطاق عام)
       {
-        protocol: "https",
-        hostname: "*.cloudinary.com",
-        port: "",
-        pathname: "/**",
+        protocol: 'https',
+        hostname: '*.cloudinary.com',
+        port: '',
+        pathname: '/**',
       },
     ],
+    // ★ Prefer AVIF then WebP for modern browsers
+    formats: ['image/avif', 'image/webp'],
   },
-  // يمكن إضافة أي إعدادات أخرى هنا مثل rewrites أو headers
+
+  // ─── Compression ─────────────────────────────────────────────
+  compress: true,
+
+  // ─── Bundle Optimization ─────────────────────────────────────
+  experimental: {
+    // Reduce client bundle size by tree-shaking unused exports from heavy packages
+    optimizePackageImports: [
+      'lucide-react',
+      'date-fns',
+      'framer-motion',
+      'zustand',
+      '@radix-ui/react-icons',
+      'react-hot-toast',
+    ],
+  },
+
+  // ─── Output Configuration ────────────────────────────────────
+  poweredByHeader: false, // Hide X-Powered-By for security
 };
 
 export default nextConfig;
